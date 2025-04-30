@@ -7,7 +7,7 @@ import ast
 
 st.set_page_config(layout="wide")
 st.title("🪙 3D Visualization of Gold News Articles Over Time")
-df_with_embeddings = pd.read_csv(r"scripts\causal_gold_articles_with_topics_bert.csv")
+df_with_embeddings = pd.read_csv("scripts/causal_gold_articles_with_topics_bert.csv")
 
 # Load the CSV file
 df = df_with_embeddings.copy()
