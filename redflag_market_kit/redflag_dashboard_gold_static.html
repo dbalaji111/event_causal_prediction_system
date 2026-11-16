@@ -257,6 +257,8 @@ table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:
 .curve-toggle button{background:var(--panel);border:1px solid var(--line-2);color:var(--muted);border-radius:4px;padding:5px 12px;font-size:11px;cursor:pointer}
 .curve-toggle button.active{background:var(--crude-dim);border-color:var(--crude);color:var(--crude)}
 .curve-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}
+.flowgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.flowgrid-lbl{font-size:9px;letter-spacing:.12em;color:var(--steel);text-transform:uppercase;margin-bottom:6px}
 .curve-panel,.strat-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px}
 .curve-panel-title,.strat-hdr{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--steel);margin-bottom:8px}
 .eq-stats{display:flex;gap:12px;flex-wrap:wrap}
@@ -285,7 +287,7 @@ table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:
 @media(max-width:1180px){
   .grid{grid-template-columns:1fr 1fr}
   .grid .col-left{grid-column:1/-1}
-  .curve-grid,.strat-grid{grid-template-columns:1fr}
+  .curve-grid,.strat-grid,.flowgrid{grid-template-columns:1fr}
 }
 @media(max-width:780px){
   .grid{grid-template-columns:1fr}
@@ -425,6 +427,23 @@ table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:
         <span class="tag" id="coneMeta"></span></div>
       <div class="pbody">
         <div id="coneChart" style="min-height:0"></div>
+      </div>
+    </div>
+
+    <div class="panel" id="flowPanel" style="margin-top:14px">
+      <div class="phdr">Analogue Flow &amp; Return Distribution
+        <span class="tag" id="flowTag">event → analogue type → 15d outcome</span></div>
+      <div class="pbody">
+        <div class="flowgrid">
+          <div>
+            <div class="flowgrid-lbl">Selected event → analogues → 15d outcome</div>
+            <div id="sankeyChart" style="min-height:0"><div class="empty">Analyze an event to see where its analogues' outcomes flow.</div></div>
+          </div>
+          <div>
+            <div class="flowgrid-lbl">Return distribution by horizon (ridgeline)</div>
+            <div id="ridgeChart" style="min-height:0"><div class="empty">Analyze an event to see the 7d / 15d / 30d forward-return distributions.</div></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -833,6 +852,8 @@ function renderAnalogues(d){
   const all = (d.similar_events||[]).filter(e => e.r7!=null && e.r15!=null);
   renderBehavioural(all);
   drawPrecedentFan(all, d);
+  drawSankey(d);
+  drawRidgeline(d);
 }
 
 function renderBehavioural(paths){
@@ -882,6 +903,101 @@ function drawPrecedentFan(paths, d){
   $("fanMeta").textContent = `${P.length} precedents · ${upN} up / ${P.length - upN} down` + (S.result?.is_bimodal ? " · bimodal" : "");
 }
 
+/* ── Sankey: selected event → analogue (grouped by event type) → 15d outcome bucket.
+   Real counts from the real retrieved analogues — no synthetic flow weights. ── */
+const OUTCOME_BUCKETS = [
+  { name:"Strong Down (< -5%)", test:v=>v<-5,            color:"#D95757" },
+  { name:"Down",                test:v=>v>=-5 && v<-1,   color:"#E2857A" },
+  { name:"Flat (±1%)",          test:v=>v>=-1 && v<=1,   color:"#68788C" },
+  { name:"Up",                  test:v=>v>1  && v<=5,    color:"#8FCBA8" },
+  { name:"Strong Up (> 5%)",    test:v=>v>5,             color:"#4CAF7D" },
+];
+function drawSankey(d){
+  const evs = (d.similar_events||[]).slice(0,40);
+  if(!evs.length){ Plotly.purge("sankeyChart"); return; }
+  const types = [...new Set(evs.map(e=>e.event_type||"Other"))];
+  const typeIdx = t => 1 + types.indexOf(t);
+  const bucketIdx = bi => 1 + types.length + bi;
+  const nodeLabels = ["Selected event", ...types, ...OUTCOME_BUCKETS.map(b=>b.name)];
+  const nodeColor = nodeLabels.map((_,i)=> i===0 ? "#E29A3C" : i<=types.length ? "#5B8DB8" : OUTCOME_BUCKETS[i-1-types.length].color);
+
+  const toType = {}, toBucket = {};
+  evs.forEach(e=>{
+    const t = e.event_type||"Other";
+    toType[t] = (toType[t]||0) + 1;
+    if(e.r15==null) return;
+    const bi = OUTCOME_BUCKETS.findIndex(b=>b.test(e.r15));
+    if(bi<0) return;
+    const key = t+"|"+bi;
+    toBucket[key] = (toBucket[key]||0) + 1;
+  });
+
+  const source=[], target=[], value=[], linkColor=[];
+  Object.entries(toType).forEach(([t,c])=>{
+    source.push(0); target.push(typeIdx(t)); value.push(c); linkColor.push("rgba(226,154,60,0.35)");
+  });
+  Object.entries(toBucket).forEach(([key,c])=>{
+    const [t,biStr] = key.split("|"), bi = +biStr;
+    source.push(typeIdx(t)); target.push(bucketIdx(bi)); value.push(c); linkColor.push(OUTCOME_BUCKETS[bi].color+"55");
+  });
+
+  $("sankeyChart").innerHTML = "";
+  Plotly.newPlot("sankeyChart", [{
+    type:"sankey", orientation:"h",
+    node:{ pad:13, thickness:13, line:{color:"#1D2836",width:0.6}, label:nodeLabels, color:nodeColor,
+      hovertemplate:"%{label}<extra></extra>" },
+    link:{ source, target, value, color:linkColor,
+      hovertemplate:"%{source.label} → %{target.label}<br>%{value} analogue(s)<extra></extra>" },
+  }], {
+    ...PLOT_BASE, height:260, font:{...PLOT_BASE.font, size:9.5}, margin:{l:6,r:6,t:6,b:6},
+  }, PLOT_CFG);
+  $("flowTag").textContent = `${evs.length} analogues · ${types.length} event type(s) · 15d outcome`;
+}
+
+/* ── Ridgeline: forward-return density at 7d/15d/30d, same weighted-Gaussian-mixture
+   construction drawKDE() uses for 15d, stacked as offset lanes. Dotted line = this
+   event's forecast median at that horizon (precomputed, or the empirical fallback). ── */
+function drawRidgeline(d){
+  const evs = d.similar_events||[];
+  if(!evs.length){ Plotly.purge("ridgeChart"); return; }
+  const a = +($("pAlpha")?.value ?? 0.5), g = +($("pGamma")?.value ?? 0.3);
+  const cone = d.forecast_cone || {};
+  const horizons = [ {h:30, color:"#9B7FD4"}, {h:15, color:"#E29A3C"}, {h:7, color:"#5B8DB8"} ];
+  const gx = Array.from({length:241},(_,i)=>-30+i*0.25);
+  const rowGap = 1.05, traces = [], shapes = [], annotations = [];
+  horizons.forEach((row, hi)=>{
+    const key = "r"+row.h, baseline = hi*rowGap;
+    let gy = gx.map(x => evs.reduce((acc,e)=>{
+      const r = e[key]; if(r==null) return acc;
+      const w = Math.pow(e.similarity||0.8,a)*Math.pow(0.9,g);
+      return acc + w*gauss(x, r, 2.2+(1-(e.similarity||0.8))*5);
+    }, 0));
+    const Z = gy.reduce((s,v)=>s+v,0)*0.25 || 1; gy = gy.map(v=>v/Z);
+    const maxY = Math.max(...gy) || 1;
+    const yNorm = gy.map(v => baseline + (v/maxY)*0.9);
+    traces.push({ x:gx, y:gx.map(()=>baseline), type:"scatter", mode:"lines",
+      line:{width:0}, showlegend:false, hoverinfo:"skip" });
+    traces.push({ x:gx, y:yNorm, type:"scatter", mode:"lines", name:`${row.h}d`,
+      line:{color:row.color, width:1.8}, fill:"tonexty", fillcolor:row.color+"22",
+      hovertemplate:`${row.h}d return %{x:.1f}%<extra></extra>` });
+    annotations.push({ x:-29.5, y:baseline+0.78, text:`${row.h}D`, showarrow:false,
+      font:{size:9,color:row.color,family:"IBM Plex Mono, monospace"}, xanchor:"left" });
+    const c = cone[String(row.h)];
+    if(c && c.median!=null){
+      shapes.push({ type:"line", x0:c.median, x1:c.median, y0:baseline, y1:baseline+0.95,
+        line:{color:"#fff", width:1.3, dash:"dot"} });
+    }
+  });
+  $("ridgeChart").innerHTML = "";
+  Plotly.newPlot("ridgeChart", traces, {
+    ...PLOT_BASE, height:260, showlegend:false,
+    margin:{l:12,r:12,t:8,b:30},
+    xaxis:{ title:{text:"forward return (%)",font:{size:9}}, gridcolor:"#1D2836", zerolinecolor:"#2A3848", range:[-30,30] },
+    yaxis:{ visible:false, range:[-0.1, horizons.length*rowGap+0.05] },
+    shapes, annotations,
+  }, PLOT_CFG);
+}
+
 /* ── posterior (slider-adjustable, approximated from the real analogues) ── */
 async function runPosterior(){
   if(!S.result) return;
@@ -901,6 +1017,7 @@ async function runPosterior(){
   $("medPct").textContent  = `Medium ${(100-tw*100).toFixed(0)}%`;
   setStage(3,true);
   drawKDE(d);
+  drawRidgeline(d);
   setStage(4);
   d.outcome_stats = { probability_up: S.behavioural ? S.behavioural.upRate : null };
   renderDecision(d);
