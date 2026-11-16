@@ -476,6 +476,34 @@ table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:
   </div>
 </div>
 
+<!-- ═══ 3D EMBEDDING MAP ═══
+     PCA(3) + KMeans/temporal-burst clusters over the full real article corpus
+     (scripts/causal_gold_articles_with_topics_bert.csv) — same projection/clustering
+     logic as scripts/main_app.py's "Clusters & Retrieval" tab, baked to
+     embeddings_viz.json by export_embeddings_viz.py. Selecting an event anywhere
+     above lights up its point here, plus its real retrieved analogues. -->
+<div class="curve-section" id="mapSection">
+  <div class="curve-header">
+    <div>
+      <div class="curve-title">🪐 3D Embedding Map — Gold News Corpus</div>
+      <div class="curve-subtitle" id="mapMeta">Loading…</div>
+    </div>
+    <div class="curve-toggle">
+      <button class="active" id="mapBtnTopic" onclick="setMapColorMode('topic')">Topic cluster</button>
+      <button id="mapBtnYear" onclick="setMapColorMode('year')">Time period</button>
+      <button id="mapBtnBurst" onclick="setMapColorMode('burst')">News bursts</button>
+    </div>
+  </div>
+  <div class="curve-panel">
+    <div id="mapChart" style="height:560px"><div class="empty">Loading embeddings…</div></div>
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:10.5px;color:var(--muted)">
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--crude);border:2px solid #fff;margin-right:5px;vertical-align:-1px"></span>Selected event</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border:2px solid var(--steel);margin-right:5px;vertical-align:-1px;transform:rotate(45deg)"></span>Its retrieved analogues</span>
+      <span style="margin-left:auto" id="mapSelMeta">Select an event above to light it up here.</span>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ VALIDATION ═══ -->
 <div class="validation">
   <div class="panel">
@@ -705,9 +733,10 @@ async function boot(){
   }
   loadFeed(); loadOVX();
   eqRunLocal(15, "2024-09-01", "2026-05-31", 0.5, 0.25, 5);
+  loadEmbeddingMap();
 }
 function useSample(btn){ $("inp").value = btn.textContent; S.eventIdx = null;
-  document.querySelectorAll(".ev.sel").forEach(e=>e.classList.remove("sel")); analyze(); }
+  document.querySelectorAll(".ev.sel").forEach(e=>e.classList.remove("sel")); analyze(); renderEmbeddingMap(); }
 
 function loadFeed(){
   const evs = DATA.events;
@@ -728,6 +757,7 @@ function selectEvent(i){
   $("inp").value = e.text||"";
   S.eventIdx = i;
   analyze();
+  renderEmbeddingMap();
 }
 
 /* ── analyze ──
@@ -1158,6 +1188,113 @@ function drawForecastCone(d){
 function eqRunLocal(h, start, end, band, veto, cost){
   const res = runBacktestLocal(h, start, end, band, veto, cost);
   eqRender(res);
+}
+
+/* ── 3D Embedding Map — PCA(3) + KMeans/temporal-burst clusters over the real
+   article corpus, baked by export_embeddings_viz.py from the same logic as
+   scripts/main_app.py's "Clusters & Retrieval" tab (real 384-d embeddings in,
+   real PCA/KMeans/KDE out — nothing in this panel is simulated). Selecting an
+   event elsewhere in the terminal highlights its point and its real analogues. */
+let MAPD = null, mapIndex = new Map(), mapColorMode = "topic";
+const TOPIC_COLORS = ["#E29A3C","#5B8DB8","#4CAF7D","#D95757","#9B7FD4","#E2B23C","#68788C","#C77DFF"];
+
+async function loadEmbeddingMap(){
+  try{
+    const r = await fetch("embeddings_viz.json");
+    MAPD = await r.json();
+    MAPD.points.forEach(p => mapIndex.set(p.event_id, p));
+    const m = MAPD.meta;
+    const nTopics = new Set(MAPD.points.map(p=>p.topic)).size;
+    $("mapMeta").textContent = `${m.n_points.toLocaleString()} real articles · PCA(3) over real 384-d embeddings `
+      + `· ${nTopics} BERT topic groups · ${m.year_range[0]}–${m.year_range[1]}`;
+    renderEmbeddingMap();
+  }catch(e){
+    $("mapMeta").textContent = "Could not load embeddings_viz.json.";
+    $("mapChart").innerHTML = `<div class="empty">Could not load embeddings_viz.json: ${e.message}<br>Open this page from the same folder the file was published in.</div>`;
+  }
+}
+
+function mapBaseTraces(){
+  const pts = MAPD.points;
+  if(mapColorMode === "year"){
+    return [{
+      type:"scatter3d", mode:"markers", name:"Articles",
+      x:pts.map(p=>p.x), y:pts.map(p=>p.y), z:pts.map(p=>p.z),
+      text:pts.map(p=>`${p.headline}<br>${p.date} · ${p.topic}`), hovertemplate:"%{text}<extra></extra>",
+      marker:{ size:2.6, opacity:0.65, color:pts.map(p=>p.year_bin), colorscale:"YlOrBr",
+        colorbar:{title:{text:"Year",font:{size:9,color:"#68788C"}}, thickness:12, len:0.6, tickfont:{size:9,color:"#68788C"}} },
+    }];
+  }
+  if(mapColorMode === "burst"){
+    const groups = [
+      {name:"Near a news burst", filt:p=>p.temporal_cluster!==-1, size:3.2, op:0.9, color:"#D95757"},
+      {name:"Background", filt:p=>p.temporal_cluster===-1, size:2.1, op:0.3, color:"#2A3848"},
+    ];
+    return groups.map(g=>{
+      const gp = pts.filter(g.filt);
+      return { type:"scatter3d", mode:"markers", name:g.name,
+        x:gp.map(p=>p.x), y:gp.map(p=>p.y), z:gp.map(p=>p.z),
+        text:gp.map(p=>`${p.headline}<br>${p.date} · ${p.topic}`), hovertemplate:"%{text}<extra></extra>",
+        marker:{ size:g.size, opacity:g.op, color:g.color } };
+    });
+  }
+  const topics = [...new Set(pts.map(p=>p.topic))].sort();
+  return topics.map((t,i)=>{
+    const gp = pts.filter(p=>p.topic===t);
+    return { type:"scatter3d", mode:"markers", name:t,
+      x:gp.map(p=>p.x), y:gp.map(p=>p.y), z:gp.map(p=>p.z),
+      text:gp.map(p=>`${p.headline}<br>${p.date}`), hovertemplate:"%{text}<extra></extra>",
+      marker:{ size:2.6, opacity:0.7, color:TOPIC_COLORS[i % TOPIC_COLORS.length] } };
+  });
+}
+
+function mapHighlightTraces(){
+  if(!MAPD) return [];
+  if(S.eventIdx == null || !DATA){ $("mapSelMeta").textContent = "Select an event above to light it up here."; return []; }
+  const e = DATA.events[S.eventIdx];
+  const sel = mapIndex.get(e.event_id);
+  const traces = [];
+  const analogues = (e.analogues||[]).map(a=>mapIndex.get(a.event_id)).filter(Boolean);
+  if(analogues.length){
+    traces.push({ type:"scatter3d", mode:"markers", name:"Retrieved analogues",
+      x:analogues.map(p=>p.x), y:analogues.map(p=>p.y), z:analogues.map(p=>p.z),
+      text:analogues.map(p=>`${p.headline}<br>${p.date}`), hovertemplate:"%{text}<extra></extra>",
+      marker:{ size:6, color:"rgba(0,0,0,0)", line:{color:"#5B8DB8", width:2.5}, symbol:"diamond" } });
+  }
+  if(sel){
+    traces.push({ type:"scatter3d", mode:"markers", name:"Selected event",
+      x:[sel.x], y:[sel.y], z:[sel.z], text:[`★ ${sel.headline}`], hovertemplate:"%{text}<extra></extra>",
+      marker:{ size:10, color:"#E29A3C", line:{color:"#fff", width:2.5} } });
+  }
+  $("mapSelMeta").textContent = sel
+    ? `Selected: ${sel.headline.slice(0,70)}${sel.headline.length>70?"…":""} · ${analogues.length} real analogue${analogues.length===1?"":"s"} highlighted`
+    : `"${(e.text||"").slice(0,50)}…" has no matching point in this corpus map.`;
+  return traces;
+}
+
+function renderEmbeddingMap(){
+  if(!MAPD) return;
+  const traces = [...mapBaseTraces(), ...mapHighlightTraces()];
+  Plotly.purge("mapChart"); // scatter3d (WebGL) can render blank via Plotly.react across trace-shape changes
+  $("mapChart").innerHTML = ""; // clears the static placeholder markup newPlot doesn't remove on its own
+  Plotly.newPlot("mapChart", traces, {
+    ...PLOT_BASE, height:560, showlegend:true,
+    legend:{ orientation:"h", y:-0.02, font:{size:9,color:"#8B949E"}, bgcolor:"rgba(0,0,0,0)" },
+    scene:{
+      xaxis:{title:"PCA 1", gridcolor:"#1D2836", color:"#68788C", backgroundcolor:"rgba(0,0,0,0)"},
+      yaxis:{title:"PCA 2", gridcolor:"#1D2836", color:"#68788C", backgroundcolor:"rgba(0,0,0,0)"},
+      zaxis:{title:"PCA 3", gridcolor:"#1D2836", color:"#68788C", backgroundcolor:"rgba(0,0,0,0)"},
+    },
+    margin:{l:0,r:0,t:8,b:0},
+  }, PLOT_CFG);
+}
+
+function setMapColorMode(mode){
+  mapColorMode = mode;
+  $("mapBtnTopic").classList.toggle("active", mode==="topic");
+  $("mapBtnYear").classList.toggle("active", mode==="year");
+  $("mapBtnBurst").classList.toggle("active", mode==="burst");
+  renderEmbeddingMap();
 }
 
 boot();
