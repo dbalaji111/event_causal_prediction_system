@@ -9,3 +9,4 @@ matplotlib==3.10.0
 yfinance==0.2.54
 scipy==1.15.2
 wordcloud==1.9.4
+statsmodels==0.14.4

@@ -2,6 +2,7 @@ import ast
 import json
 import os
 import re
+import warnings
 from collections import Counter
 
 import numpy as np
@@ -9,8 +10,11 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from scipy.signal import find_peaks
 from scipy.stats import gaussian_kde
+from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from sklearn.metrics.pairwise import cosine_similarity
 from wordcloud import WordCloud
 
 from utils import add_indicators, load_futures
@@ -22,12 +26,93 @@ st.set_page_config(layout="wide", page_title="Commodity Event Intelligence")
 
 st.title("🌐 Commodity Event Intelligence Dashboard")
 st.markdown(
-    "### Scenario-1: Event Memory Exploration  |  Scenario-2: Futures Quant Dashboard  |  Data Pipeline"
+    "### Scenario-1: Event Memory  |  Scenario-2: Quant Dashboard  |  "
+    "Clusters & Retrieval  |  Data Pipeline"
 )
 st.divider()
 
-tab1, tab2, tab3 = st.tabs(
-    ["🧠 Scenario 1 — Event Memory", "🏆 Scenario 2 — Quant Dashboard", "🗂 Data Pipeline"]
+# ============================================================
+# SHARED CACHED LOADERS (module scope — usable from any tab)
+# ============================================================
+@st.cache_data
+def load_event_data():
+    df = pd.read_csv(EVENT_CSV)
+    df["embedding"] = df["gold_general_embedding"].apply(lambda x: np.array(ast.literal_eval(x)))
+    reduced = PCA(n_components=3).fit_transform(np.vstack(df["embedding"].values))
+    df["x"], df["y"], df["z"] = reduced[:, 0], reduced[:, 1], reduced[:, 2]
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    return df.dropna(subset=["Date"])
+
+
+@st.cache_data
+def load_event_csv_cached():
+    return pd.read_csv(EVENT_CSV) if os.path.exists(EVENT_CSV) else pd.DataFrame()
+
+
+@st.cache_data
+def load_futures_cached(ticker="GC=F", start="2000-01-01"):
+    return add_indicators(load_futures(ticker, start))
+
+
+@st.cache_data
+def compute_embedding_clusters(k):
+    """KMeans over the full 384-d embeddings (not the 3D PCA projection)."""
+    df = load_event_data()
+    embeddings = np.vstack(df["embedding"].values)
+    km = KMeans(n_clusters=k, random_state=42, n_init=10)
+    return km.fit_predict(embeddings)
+
+
+@st.cache_data
+def compute_temporal_density():
+    """KDE over event dates — same gaussian_kde used for the returns distribution
+    in scenario2_quant_dashboard.py, applied here to event timestamps to surface
+    bursts ('temporal clusters') of news activity."""
+    df = load_event_data()
+    day_nums = df["Date"].values.astype("datetime64[D]").astype(float)
+    kde = gaussian_kde(day_nums)
+    grid = np.linspace(day_nums.min(), day_nums.max(), 1500)
+    density = kde(grid)
+    grid_dates = pd.to_datetime(grid, unit="D")
+    peak_idx, _ = find_peaks(density, distance=15, prominence=density.max() * 0.08)
+    return grid_dates, density, grid_dates[peak_idx]
+
+
+def retrieve_similar_events(df, idx, top_k=10):
+    """Cosine-similarity retrieval — same approach already used for prototype/topic
+    matching in gold_relvant_data_extraction.ipynb and gold_bert_topics.ipynb
+    (`cosine_similarity(article_embeddings, prototype_embeddings)`), here applied
+    event-to-event instead of event-to-prototype."""
+    embeddings = np.vstack(df["embedding"].values)
+    sims = cosine_similarity(embeddings[idx : idx + 1], embeddings)[0]
+    order = [i for i in np.argsort(-sims) if i != idx][:top_k]
+    out = df.iloc[order].copy()
+    out["similarity"] = sims[order]
+    return out
+
+
+def forecast_price(dates, prices, horizon):
+    from statsmodels.tsa.holtwinters import ExponentialSmoothing
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = ExponentialSmoothing(
+            prices.values, trend="add", damped_trend=True, initialization_method="estimated"
+        ).fit()
+    mean_fc = model.forecast(horizon)
+    resid_std = float(np.std(model.resid))
+    band = resid_std * np.sqrt(np.arange(1, horizon + 1))
+    future_dates = pd.bdate_range(dates.iloc[-1] + pd.Timedelta(days=1), periods=horizon)
+    return future_dates, mean_fc, mean_fc - 1.96 * band, mean_fc + 1.96 * band
+
+
+tab1, tab2, tab3, tab4 = st.tabs(
+    [
+        "🧠 Scenario 1 — Event Memory",
+        "🏆 Scenario 2 — Quant Dashboard",
+        "🧬 Clusters & Retrieval",
+        "🗂 Data Pipeline",
+    ]
 )
 
 # ============================================================
@@ -35,15 +120,6 @@ tab1, tab2, tab3 = st.tabs(
 # ============================================================
 with tab1:
     st.subheader("🪙 3D Visualization of Gold News Articles Over Time")
-
-    @st.cache_data
-    def load_event_data():
-        df = pd.read_csv(EVENT_CSV)
-        df["embedding"] = df["gold_general_embedding"].apply(lambda x: np.array(ast.literal_eval(x)))
-        reduced = PCA(n_components=3).fit_transform(np.vstack(df["embedding"].values))
-        df["x"], df["y"], df["z"] = reduced[:, 0], reduced[:, 1], reduced[:, 2]
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-        return df.dropna(subset=["Date"])
 
     df_events = load_event_data()
 
@@ -124,14 +200,6 @@ with tab1:
 # ============================================================
 with tab2:
     st.subheader("🏆 Gold Futures — Technical & Event-Overlay Analysis")
-
-    @st.cache_data
-    def load_futures_cached(ticker="GC=F", start="2000-01-01"):
-        return add_indicators(load_futures(ticker, start))
-
-    @st.cache_data
-    def load_event_csv_cached():
-        return pd.read_csv(EVENT_CSV) if os.path.exists(EVENT_CSV) else pd.DataFrame()
 
     df_fut = load_futures_cached()
     event_df = load_event_csv_cached()
@@ -258,10 +326,194 @@ with tab2:
     st.download_button("📥 Export Snapshot (JSON)", json.dumps(snapshot, indent=2),
                         file_name="window_snapshot.json", mime="application/json")
 
+    st.divider()
+    st.subheader("🔮 Price Forecast (Holt's Damped-Trend Exponential Smoothing)")
+    horizon = st.slider("Forecast horizon (business days)", 5, 90, 30, key="fc_horizon")
+    train = filt_df.dropna(subset=["Price"])
+    if len(train) < 30:
+        st.info("Select a window with at least 30 trading days to fit a forecast.")
+    else:
+        future_dates, mean_fc, lower, upper = forecast_price(train["Date"], train["Price"], horizon)
+
+        fig_fc = go.Figure()
+        fig_fc.add_trace(go.Scatter(x=train["Date"], y=train["Price"], mode="lines",
+                                     line=dict(color="gold", width=2), name="Historical (Selected Window)"))
+        fig_fc.add_trace(go.Scatter(
+            x=pd.concat([pd.Series(future_dates), pd.Series(future_dates[::-1])]),
+            y=np.concatenate([upper, lower[::-1]]),
+            fill="toself", fillcolor="rgba(0,191,255,0.15)",
+            line=dict(color="rgba(255,255,255,0)"), hoverinfo="skip", name="95% Interval",
+        ))
+        fig_fc.add_trace(go.Scatter(x=future_dates, y=mean_fc, mode="lines",
+                                     line=dict(color="deepskyblue", width=2.5, dash="dash"), name="Forecast"))
+        fig_fc.update_layout(
+            title=f"Gold Futures Forecast — Next {horizon} Business Days",
+            template="plotly_dark", plot_bgcolor="black", paper_bgcolor="black",
+            font=dict(color="white"), hovermode="x unified", margin=dict(l=0, r=0, t=60, b=0),
+        )
+        st.plotly_chart(fig_fc, use_container_width=True)
+
+        last_price = train["Price"].iloc[-1]
+        end_price = mean_fc[-1]
+        colF1, colF2, colF3 = st.columns(3)
+        colF1.metric("Last Actual Price", f"{last_price:,.2f}")
+        colF2.metric(f"Forecast (+{horizon}d)", f"{end_price:,.2f}", f"{(end_price / last_price - 1) * 100:+.2f}%")
+        colF3.metric("95% Interval Width (end)", f"±{(upper[-1] - lower[-1]) / 2:,.2f}")
+
+# ============================================================
+# CLUSTERS & RETRIEVAL — embeddings, KMeans clusters, temporal
+# bursts (KDE), per-cluster price windows, similarity retrieval
+# ============================================================
+with tab3:
+    # reset_index(drop=True) so the positional row order here exactly matches
+    # np.vstack(df_all["embedding"].values) — load_event_data()'s dropna() leaves
+    # gaps in the original index, and several sections below rely on positional
+    # (0..N-1) row lookups into the embeddings array.
+    df_all = load_event_data().reset_index(drop=True)
+
+    st.subheader("🧬 Embedding Clusters")
+    st.caption(
+        f"{len(df_all)} events · {np.vstack(df_all['embedding'].values).shape[1]}-dim embeddings "
+        "(same `gold_general_embedding` vectors used for the 3D PCA view)."
+    )
+    k = st.slider("Number of clusters (KMeans)", 2, 12, 6, key="cluster_k")
+    cluster_labels = compute_embedding_clusters(k)
+    df_all["cluster"] = [f"Cluster {c}" for c in cluster_labels]
+
+    fig_clusters = px.scatter_3d(
+        df_all, x="x", y="y", z="z", color="cluster",
+        hover_name="Headline",
+        hover_data={"Date": True, "assigned_topic_bert": True, "cluster": True},
+        title=f"KMeans Clusters (k={k}) over Event Embeddings",
+    )
+    fig_clusters.update_layout(
+        scene=dict(xaxis_title="PCA1", yaxis_title="PCA2", zaxis_title="PCA3"),
+        margin=dict(l=0, r=0, b=0, t=40), template="plotly_dark", paper_bgcolor="black",
+    )
+    st.plotly_chart(fig_clusters, use_container_width=True)
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        size_df = df_all["cluster"].value_counts().reset_index()
+        size_df.columns = ["Cluster", "Events"]
+        st.plotly_chart(
+            px.bar(size_df, x="Cluster", y="Events", color="Events", template="plotly_dark",
+                   title="Cluster Sizes", color_continuous_scale="sunset"),
+            use_container_width=True,
+        )
+    with col_b:
+        st.plotly_chart(
+            px.histogram(df_all, x="Date", color="cluster", nbins=60, template="plotly_dark",
+                         title="Cluster Activity Over Time — Respective Time Series"),
+            use_container_width=True,
+        )
+
+    st.divider()
+    st.subheader("⏳ Temporal Clusters — Event Bursts via KDE")
+    st.caption(
+        "Density estimated with `scipy.stats.gaussian_kde`, the same KDE routine already used for "
+        "Daily % Returns in Scenario-2 — applied here to event dates to find bursts of news activity."
+    )
+    window_days = st.slider("Burst window (± days around each peak)", 3, 30, 10, key="burst_window")
+    grid_dates, density, peak_dates = compute_temporal_density()
+
+    fig_density = go.Figure()
+    fig_density.add_trace(go.Scatter(x=grid_dates, y=density, mode="lines", fill="tozeroy",
+                                      line=dict(color="gold"), name="Event Density"))
+    fig_density.add_trace(go.Scatter(
+        x=peak_dates, y=np.interp(peak_dates.astype(np.int64), grid_dates.astype(np.int64), density),
+        mode="markers", marker=dict(size=9, color="crimson", line=dict(width=1, color="white")),
+        name="Detected Bursts",
+    ))
+    fig_density.update_layout(
+        title="Event Density Over Time (KDE) with Detected Bursts",
+        template="plotly_dark", plot_bgcolor="black", paper_bgcolor="black",
+        font=dict(color="white"), margin=dict(l=0, r=0, t=60, b=0),
+    )
+    st.plotly_chart(fig_density, use_container_width=True)
+
+    cluster_rows = []
+    for i, pk in enumerate(peak_dates):
+        w_start, w_end = pk - pd.Timedelta(days=window_days), pk + pd.Timedelta(days=window_days)
+        count = int(((df_all["Date"] >= w_start) & (df_all["Date"] <= w_end)).sum())
+        cluster_rows.append({
+            "Cluster": i, "Peak Date": pk.date(), "Window Start": w_start.date(),
+            "Window End": w_end.date(), "Events": count,
+        })
+    temporal_df = pd.DataFrame(cluster_rows)
+    st.dataframe(temporal_df, use_container_width=True)
+
+    st.divider()
+    st.subheader("📉 Respective Time-Series Data for a Temporal Cluster")
+    if temporal_df.empty:
+        st.info("No bursts detected at the current sensitivity.")
+    else:
+        choice = st.selectbox(
+            "Choose a temporal cluster",
+            temporal_df.index,
+            format_func=lambda i: f"Cluster {i} — peak {temporal_df.loc[i, 'Peak Date']} "
+                                   f"({temporal_df.loc[i, 'Events']} events)",
+            key="temporal_choice",
+        )
+        row = temporal_df.loc[choice]
+        df_fut_all = load_futures_cached()
+        pad = pd.Timedelta(days=5)
+        win_mask = (df_fut_all["Date"] >= pd.Timestamp(row["Window Start"]) - pad) & \
+                   (df_fut_all["Date"] <= pd.Timestamp(row["Window End"]) + pad)
+        win_price = df_fut_all[win_mask]
+
+        fig_win = go.Figure()
+        fig_win.add_trace(go.Scatter(x=win_price["Date"], y=win_price["Price"], mode="lines",
+                                      line=dict(color="gold", width=2.5), name="Price"))
+        fig_win.add_vrect(x0=row["Window Start"], x1=row["Window End"],
+                           fillcolor="rgba(255,99,71,0.2)", line_width=0, annotation_text="Burst Window")
+        fig_win.update_layout(
+            title=f"Gold Futures Around Temporal Cluster {choice} ({row['Window Start']} → {row['Window End']})",
+            template="plotly_dark", plot_bgcolor="black", paper_bgcolor="black",
+            font=dict(color="white"), margin=dict(l=0, r=0, t=60, b=0),
+        )
+        st.plotly_chart(fig_win, use_container_width=True)
+
+        win_events = df_all[(df_all["Date"] >= pd.Timestamp(row["Window Start"])) &
+                             (df_all["Date"] <= pd.Timestamp(row["Window End"]))]
+        with st.expander(f"📰 {len(win_events)} events in this burst window"):
+            st.dataframe(
+                win_events[["Date", "Headline", "assigned_topic_bert", "gold_cause", "cluster"]]
+                .sort_values("Date"),
+                use_container_width=True,
+            )
+
+    st.divider()
+    st.subheader("🔍 Select an Event → Retrieve Similar Events")
+    st.caption(
+        "Retrieval reuses the `cosine_similarity(embeddings, prototype_embeddings)` pattern already "
+        "in `gold_relvant_data_extraction.ipynb` / `gold_bert_topics.ipynb`, applied event-to-event."
+    )
+    df_sorted = df_all.sort_values("Date", ascending=False)
+    labels = [f"{r.Date.date()} — {r.Headline[:90]}" for r in df_sorted.itertuples()]
+    sel = st.selectbox("Event", range(len(labels)), format_func=lambda i: labels[i], key="retrieval_event")
+    top_k = st.slider("How many similar events to retrieve", 5, 25, 10, key="retrieval_k")
+
+    selected_row = df_sorted.iloc[sel]
+    selected_idx = df_sorted.index[sel]  # position in df_all / embeddings (df_all has a clean 0..N-1 index)
+    st.markdown(
+        f"**Selected:** {selected_row['Headline']}  \n"
+        f"*{selected_row['Date'].date()} — {selected_row['assigned_topic_bert']}*  \n"
+        f"Cause: {selected_row.get('gold_cause', '—')}"
+    )
+
+    similar = retrieve_similar_events(df_all, selected_idx, top_k)
+    st.dataframe(
+        similar[["Date", "Headline", "assigned_topic_bert", "gold_cause", "similarity"]]
+        .assign(similarity=lambda d: d["similarity"].round(3))
+        .sort_values("similarity", ascending=False),
+        use_container_width=True,
+    )
+
 # ============================================================
 # DATA PIPELINE — DOCUMENTATION / INGESTION STATUS
 # ============================================================
-with tab3:
+with tab4:
     st.subheader("🗂 How the Event Data Gets Here")
     st.markdown(
         """
@@ -272,7 +524,7 @@ with tab3:
            (`llama3.1`) per article to extract the same fields as structured JSON/JSONL.
         4. Downstream notebooks (`gold_relvant_data_extraction.ipynb`, `gold_bert_topics.ipynb`)
            score gold-relevance, summarize cause/effect, embed, and assign topics — producing
-           `causal_gold_articles_with_topics.csv` / `..._bert.csv`, which both Scenario tabs read.
+           `causal_gold_articles_with_topics.csv` / `..._bert.csv`, which every tab above reads.
         """
     )
 
