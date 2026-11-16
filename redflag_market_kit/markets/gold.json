@@ -9,7 +9,8 @@
   "notes": [
    "Gold has no OVX. Supply a gold volatility index (CBOE GVZ) CSV or set paths.vol_index to null to disable the structural vol term.",
    "Backwardation/contango carries a different meaning in gold (carry vs supply tightness). Decide the structural score definition before relying on it.",
-   "Event-type keywords below are oil-first; gold needs its own (real yields, central-bank buying, USD, ETF flows). Replace event_keywords/causal_keywords."
+   "Event-type keywords below are oil-first; gold needs its own (real yields, central-bank buying, USD, ETF flows). Replace event_keywords/causal_keywords.",
+   "Corpus (demo/build_real_gold_corpus.py) is the REAL article/embedding/causal data from this repo's own pipeline (scripts/causal_gold_articles_with_topics_bert.csv). Prices are NOT real: no price file exists anywhere in this repo and Yahoo Finance is blocked from this sandbox, so price/price_t_*/Quantile_Category/GVZ come from a hand-anchored approximation of gold's known price history, not a feed. Replace paths.prices/paths.vol_index with real files (or grant network access and swap in a yfinance fetch) before trusting any price-derived number here."
   ]
  },
  "paths": {
@@ -72,7 +73,7 @@
    "combined_text",
    "headline"
   ],
-  "embedding_dim": 768
+  "embedding_dim": 384
  },
  "retrieval": {
   "tau": 0.75,
