@@ -6,3 +6,6 @@ scikit-learn==1.6.1
 sentence-transformers==4.0.2
 umap-learn==0.5.7
 matplotlib==3.10.0
+yfinance==0.2.54
+scipy==1.15.2
+wordcloud==1.9.4
