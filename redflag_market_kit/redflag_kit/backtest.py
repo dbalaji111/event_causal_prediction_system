@@ -5,17 +5,22 @@ import uuid
 import numpy as np, pandas as pd
 
 
-def run_backtest(kdf: pd.DataFrame, cfg: dict) -> dict:
+def run_backtest(kdf: pd.DataFrame, cfg: dict, headlines: dict | None = None) -> dict:
     h = cfg.get("horizon", 15)
     s, e = pd.Timestamp(cfg.get("start_date", "2024-01-01")), pd.Timestamp(cfg.get("end_date", "2026-04-28"))
     band, veto, cost = cfg.get("no_trade_band", 0.5), cfg.get("tail_veto", 0.25), cfg.get("cost_bps", 5) / 10000 * 100
     kdf = kdf.copy(); kdf["base_date"] = pd.to_datetime(kdf["base_date"], errors="coerce")
     df = kdf[(kdf["base_date"] >= s) & (kdf["base_date"] <= e)].dropna(subset=["realised_r", "kde_median"]).reset_index(drop=True)
-    pnl, sig = [], []
+    pnl, sig, events = [], [], []
     for _, r in df.iterrows():
         med, pd10 = float(r["kde_median"]), float(r.get("kde_p_down10", 0.1))
         sg = 0 if pd10 > veto else 1 if med > band else -1 if med < -band else 0
-        sig.append(sg); pnl.append(sg * float(r["realised_r"]) - abs(sg) * cost if sg else 0.0)
+        p = sg * float(r["realised_r"]) - abs(sg) * cost if sg else 0.0
+        sig.append(sg); pnl.append(p)
+        eid = r.get("event_id", "")
+        events.append({"event_id": eid, "headline": (headlines or {}).get(eid, ""),
+                        "red_flag": int(r.get("red_flag", 0) or 0), "kde_median": med,
+                        "realised_r": float(r["realised_r"]), "pnl": round(p, 3)})
     pnl, sig = np.array(pnl), np.array(sig); tr = sig != 0; n = int(tr.sum())
     mean = float(pnl[tr].mean()) if n else 0.0; sd = float(pnl[tr].std()) if n > 1 else 0.0
     cum = np.cumsum(pnl)
@@ -31,4 +36,5 @@ def run_backtest(kdf: pd.DataFrame, cfg: dict) -> dict:
                     "max_drawdown_pct": round(float((cum - np.maximum.accumulate(cum)).min()), 2) if len(cum) else 0},
         "red_flag_utility": {"n_flagged": int(len(flagged)), "flagged_mean_r": round(float(flagged["realised_r"].mean()), 2) if len(flagged) else 0,
                              "unflagged_mean_r": round(float(unfl["realised_r"].mean()), 2) if len(unfl) else 0}},
-        "equity_curve": [round(float(v), 3) for v in cum], "dates": [str(d)[:10] for d in df["base_date"]]}
+        "equity_curve": [round(float(v), 3) for v in cum], "dates": [str(d)[:10] for d in df["base_date"]],
+        "signals": [int(x) for x in sig], "events": events}

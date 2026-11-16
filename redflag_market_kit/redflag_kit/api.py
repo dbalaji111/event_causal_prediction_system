@@ -6,6 +6,7 @@ import numpy as np, pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from . import kde as kde_mod
 from . import scoring
 from .backtest import run_backtest
 from .config import MarketConfig
@@ -27,15 +28,24 @@ def create_app(cfg: MarketConfig) -> FastAPI:
         if "p" not in C: C["p"] = PriceData(cfg)
         return C["p"]
 
-    def kde_results() -> pd.DataFrame:
-        f = kde_dir() / "kde_v3_results_h15.csv"
-        if "k" not in C and f.exists(): C["k"] = pd.read_csv(f)
-        return C.get("k", pd.DataFrame())
+    def kde_results(horizon: int = 15) -> pd.DataFrame:
+        key = f"k{horizon}"
+        f = kde_dir() / f"kde_v3_results_h{horizon}.csv"
+        if key not in C and f.exists(): C[key] = pd.read_csv(f)
+        return C.get(key, pd.DataFrame())
 
     def event(eid):
         e = retr().by_id.get(eid)
         if e is None: raise HTTPException(404, f"{eid} not found in test corpus")
         return e
+
+    def train_text() -> dict:
+        if "tt" not in C: C["tt"] = {r["event_id"]: r["text"] for r in retr().train}
+        return C["tt"]
+
+    def enrich(analogues: list) -> list:
+        tt = train_text()
+        return [{**a, "summary": tt.get(a["event_id"], "")[:140]} for a in analogues]
 
     @app.get("/")
     def root(): return {"name": f"Red Flag API - {cfg['display_name']}", "market": cfg.market, "status": "operational"}
@@ -67,11 +77,19 @@ def create_app(cfg: MarketConfig) -> FastAPI:
         h, eid = payload.get("headline", ""), payload.get("event_id", "")
         if not h: raise HTTPException(400, "headline required")
         cl = scoring.classify_headline(cfg, h); sev = cl["severity"]; rf = scoring.red_flag_score(cfg, h, sev)
-        row = None
-        k = kde_results()
-        if eid and not k.empty and "event_id" in k:
-            m = k[k["event_id"] == eid]
-            row = m.iloc[0] if not m.empty else None
+        row, similar, cone, e = None, [], {}, retr().by_id.get(eid) if eid else None
+        if e is not None:
+            # live retrieval + KDE for every configured horizon, computed fresh in-process
+            # (no precomputed-file dependency) - this is what makes similar_events and
+            # forecast_cone real instead of the heuristic fallback below.
+            res = retr().retrieve_adaptive(e, cfg["retrieval"]["tau"], cfg["kde"]["min_analogues"])
+            similar = enrich(res.get("analogues", []))
+            for hz in cfg["kde"]["horizons"]:
+                kr, _, _ = kde_mod.run_event(cfg, eid, e["date"], res.get("analogues", []), prices(), hz)
+                if "error" not in kr:
+                    cone[str(hz)] = {"p5": kr["kde_p5"], "median": kr["kde_median"], "p95": kr["kde_p95"],
+                                      "is_bimodal": bool(kr.get("kde_is_bimodal"))}
+                    if hz == cfg["backtest"]["horizon"]: row = kr
         sig = 4 + sev * 1.5
         src = "precomputed" if row is not None else "heuristic"
         g = lambda c, d: float(row[c]) if row is not None and c in row and pd.notna(row[c]) else d
@@ -79,12 +97,15 @@ def create_app(cfg: MarketConfig) -> FastAPI:
                 "red_flag_label": scoring.label_for(cfg, rf), "kde_source": src,
                 "kde_p5": g("kde_p5", round(-sig * 1.65, 1)), "kde_median": g("kde_median", round(sev * 0.8 - 1.2, 1)),
                 "kde_p95": g("kde_p95", round(sig * 1.65, 1)), "tail_weight": g("kde_tail_weight", round(0.1 + sev * 0.06, 3)),
-                "is_bimodal": bool(g("kde_is_bimodal", 0)), "similar_events": [], "similar_events_found": 0}
+                "is_bimodal": bool(g("kde_is_bimodal", 0)), "similar_events": similar, "similar_events_found": len(similar),
+                "forecast_cone": cone}
 
     @app.post("/retrieve")
     def retrieve(payload: dict):
         e = event(payload.get("event_id", ""))
-        return retr().retrieve_adaptive(e, float(payload.get("tau", 0.85)), int(payload.get("k_min", 25)))
+        res = retr().retrieve_adaptive(e, float(payload.get("tau", 0.85)), int(payload.get("k_min", 25)))
+        res["analogues"] = enrich(res["analogues"])
+        return res
 
     @app.get("/kde/{event_id}")
     def kde(event_id: str):
@@ -133,9 +154,9 @@ def create_app(cfg: MarketConfig) -> FastAPI:
 
         def work():
             try:
-                k = kde_results()
-                if k.empty: raise ValueError("No KDE results found - run kde first")
-                r = run_backtest(k, c)
+                k = kde_results(c.get("horizon", cfg["backtest"]["horizon"]))
+                if k.empty: raise ValueError(f"No KDE results for horizon {c.get('horizon')} - run `kde --horizons {c.get('horizon')}` first")
+                r = run_backtest(k, c, headlines=train_text() | {t["event_id"]: t["text"] for t in retr().test})
                 with lock: bt.update(status="done", progress=r["n_events"], total=r["n_events"], message="Complete", results=r)
             except Exception as e:
                 with lock: bt.update(status="error", message=str(e))

@@ -1,3 +1,4 @@
 __pycache__/
 *.pyc
 redflag_market_kit/demo/data_root/
+redflag_market_kit/demo/data_root_gold/

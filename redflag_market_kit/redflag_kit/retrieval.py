@@ -48,11 +48,12 @@ class Retriever:
             a = self.train[i]
             pp = price_path(a, PATH_NODES)
             age = max((base["date"] - a["date"]).days / 365.25, 0.0)
+            rnd = lambda v: v if v is None else round(v, 3)
             out.append({"event_id": a["event_id"], "date": str(a["date"].date()), "similarity": round(float(sims[i]), 6),
                         "recency_weight": round(float(np.exp(-rc["recency_lambda"] * age)), 6),
                         "quantile_cat": a["quantile_cat"], "event_type": a["event_type"], "polarity": a["polarity"],
-                        "price": a["price0"], "price_path": {str(k): v for k, v in pp.items()},
-                        "r7": pp[7], "r15": pp[15], "r30": pp[30]})
+                        "price": a["price0"], "price_path": {str(k): rnd(v) for k, v in pp.items()},
+                        "r7": rnd(pp[7]), "r15": rnd(pp[15]), "r30": rnd(pp[30])})
         base_pp = price_path(base, PATH_NODES)
         have = all(v is not None for v in base_pp.values())
         return {"base_event_id": base["event_id"], "base_date": str(base["date"].date()), "tau": tau, "top_k": top_k,
