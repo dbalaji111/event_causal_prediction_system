@@ -495,6 +495,28 @@ table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:
   </div>
 </div>
 
+<!-- ═══ AI ANALYST SYNTHESIS ═══
+     Uses the `sample` runtime capability (claude.use("sample")) to have Claude itself
+     write a real narrative over this event's actual retrieved numbers - base event,
+     analogues, 15d outcome distribution, forecast cone, decision score. Not a template
+     (that's "Generate analyst report" above) - an actual model call, grounded strictly
+     in the real numbers already computed for the selected event. Only resolves on
+     claude.ai (the published Artifact); the standalone HTML file explains why not. -->
+<div class="curve-section" id="aiSection">
+  <div class="curve-header">
+    <div>
+      <div class="curve-title">🧠 AI Analyst Synthesis</div>
+      <div class="curve-subtitle" id="aiMeta">Analyze an event above, then generate a narrative synthesis of everything this terminal found.</div>
+    </div>
+    <button class="btn" id="aiGenBtn" onclick="generateAISynthesis()" disabled style="padding:9px 22px;white-space:nowrap">✦ Generate AI synthesis</button>
+  </div>
+  <div class="curve-panel">
+    <div class="doc-body" id="aiBody" style="padding:8px 10px;min-height:60px;font-size:13.5px">
+      <div class="empty" id="aiEmpty">This calls Claude itself to read the real event, analogue, outcome-distribution and forecast numbers above and write a plain-English analyst note — base event → analogues → forecast → decision — grounded strictly in those numbers, not a canned template. It only works when this page is opened as a Claude Artifact on claude.ai.</div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ 3D EMBEDDING MAP ═══
      PCA(3) + KMeans/temporal-burst clusters over the full real article corpus
      (scripts/causal_gold_articles_with_topics_bert.csv) — same projection/clustering
@@ -753,6 +775,7 @@ async function boot(){
   loadFeed(); loadOVX();
   eqRunLocal(15, "2024-09-01", "2026-05-31", 0.5, 0.25, 5);
   loadEmbeddingMap();
+  ensureSample();
 }
 function useSample(btn){ $("inp").value = btn.textContent; S.eventIdx = null;
   document.querySelectorAll(".ev.sel").forEach(e=>e.classList.remove("sel")); analyze(); renderEmbeddingMap(); }
@@ -854,6 +877,7 @@ function renderAnalogues(d){
   drawPrecedentFan(all, d);
   drawSankey(d);
   drawRidgeline(d);
+  refreshAiButton();
 }
 
 function renderBehavioural(paths){
@@ -1075,6 +1099,82 @@ function drawKDE(d){
   $("kStats").style.display="grid";
   const f=v=>v==null?"—":(v>0?"+":"")+(+v).toFixed(1)+"%";
   $("kP5").textContent=f(p5); $("kMed").textContent=f(med); $("kP95").textContent=f(p95);
+}
+
+/* ── AI Analyst Synthesis — a real Claude call (the `sample` runtime capability),
+   not a template. Only resolves inside the published Claude Artifact; the standalone
+   HTML file has no window.claude, so this degrades to an explanatory message. ── */
+let AI_SAMPLE = null;
+async function ensureSample(){
+  if(AI_SAMPLE === null){
+    AI_SAMPLE = (typeof claude!=="undefined" && claude.use) ? (await claude.use("sample")) || false : false;
+  }
+  if(!AI_SAMPLE) $("aiMeta").textContent = "Not available in this view — open this page as a Claude Artifact on claude.ai to use it.";
+  refreshAiButton();
+  return AI_SAMPLE;
+}
+function refreshAiButton(){
+  $("aiGenBtn").disabled = !AI_SAMPLE || !S.result;
+}
+function buildAnalystPrompt(d){
+  const evs = (d.similar_events||[]).slice(0,40);
+  const typesCount = {};
+  evs.forEach(e=>{ const t=e.event_type||"Other"; typesCount[t]=(typesCount[t]||0)+1; });
+  const outcomeCounts = {};
+  OUTCOME_BUCKETS.forEach(b=>outcomeCounts[b.name]=0);
+  evs.forEach(e=>{ if(e.r15==null) return; const b=OUTCOME_BUCKETS.find(b=>b.test(e.r15)); if(b) outcomeCounts[b.name]++; });
+  const cone = d.forecast_cone||{};
+  const coneLines = [7,15,30].map(h=>{
+    const c = cone[String(h)];
+    if(!c) return `${h}d: no posterior available (too few analogues at this horizon)`;
+    return `${h}d: median ${c.median>0?"+":""}${(+c.median).toFixed(1)}%, P5 ${(+c.p5).toFixed(1)}%, P95 ${(+c.p95).toFixed(1)}%`
+      + (c.is_bimodal?" (bimodal — two distinct scenarios)":"") + (c._approx?" [empirical percentiles, not a full KDE posterior]":"");
+  }).join("\n");
+  const behav = S.behavioural;
+  return `You are a commodities (gold/XAU) markets analyst. Write a concise analyst note (250-350 words, `
+    + `plain prose, no markdown headers) synthesizing the REAL retrieval-based analysis below of one news event. `
+    + `Do not invent any numbers beyond what is given here. Be direct about uncertainty, thin data, and approximations `
+    + `flagged below — do not smooth over them.\n\n`
+    + `BASE EVENT:\n"${d.headline}"\nType: ${d.event_type||"—"} · Severity: ${d.severity_label||"—"}\n\n`
+    + `ANALOGUES: ${evs.length} real historical headlines retrieved by embedding similarity.\n`
+    + `By type: ${Object.entries(typesCount).map(([t,c])=>`${t} (${c})`).join(", ")||"—"}\n`
+    + `Behavioural pattern vs these analogues: ${behav ? `${behav.mode} — ${(behav.over*100).toFixed(0)}% of precedents faded (reversed), `
+      + `${(behav.under*100).toFixed(0)}% extended, ${(behav.agree*100).toFixed(0)}% directional agreement on sign of the 15d move` : "not computed"}\n\n`
+    + `15-DAY OUTCOME DISTRIBUTION of those analogues (real historical r+15d returns, bucketed):\n`
+    + `${Object.entries(outcomeCounts).map(([k,v])=>`${k}: ${v}`).join("\n")}\n\n`
+    + `FORECAST CONE (from the KDE posterior over these analogues, or an empirical-percentile fallback where noted):\n${coneLines}\n\n`
+    + `COMPOSITE DECISION SCORE: ${d.red_flag_score??"—"}/100 (${d.red_flag_label||"—"}) — ${d.recommendation||"—"}\n\n`
+    + `Write the note as one flowing narrative: what the base event is, what kind of historical precedent it echoes and `
+    + `whether that history says fade the initial reaction or follow it, what the realistic range of outcomes looks like `
+    + `at each horizon and how that range changes over time, and what that implies for how a trader should act — `
+    + `grounded strictly in the numbers above.`;
+}
+async function generateAISynthesis(){
+  const sample = await ensureSample();
+  if(!sample || !S.result) return;
+  const btn = $("aiGenBtn");
+  btn.disabled = true; btn.textContent = "Generating…";
+  const empty = $("aiEmpty"); if(empty) empty.remove();
+  $("aiBody").innerHTML = "";
+  const target = document.createElement("div");
+  $("aiBody").appendChild(target);
+  try{
+    const prompt = buildAnalystPrompt(S.result);
+    const res = await sample(prompt, {
+      onText: ({text}) => { target.innerHTML = (typeof marked!=="undefined") ? marked.parse(text) : text; },
+    });
+    target.innerHTML = (typeof marked!=="undefined") ? marked.parse(res.text) : res.text;
+    $("aiMeta").textContent = `Generated for: "${(S.result.headline||"").slice(0,70)}${(S.result.headline||"").length>70?"…":""}"`
+      + (res.truncated ? " (truncated)" : "");
+  }catch(e){
+    const msg = e && e.code==="not_granted" ? "You declined Claude access for this page — nothing was generated."
+      : e && e.code==="rate_limited" ? "Rate limited — try again in a moment."
+      : "Couldn't generate a synthesis right now.";
+    target.innerHTML = `<span style="color:var(--down)">${msg}</span>`;
+  }finally{
+    btn.disabled = false; btn.textContent = "✦ Generate AI synthesis";
+    refreshAiButton();
+  }
 }
 
 const scoreColor = s => s>=70?"#D95757":s>=45?"#E29A3C":s>=25?"#E2B23C":"#4CAF7D";
