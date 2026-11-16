@@ -1,0 +1,369 @@
+{
+ "market": "oil",
+ "display_name": "Crude oil (WTI)",
+ "ticker_label": "CRUDE \u00b7 WTI",
+ "price_unit": "USD/bbl",
+ "status": {
+  "calibrated": true,
+  "origin": "values read from redflag_api_v5.py, kde_engine_v3.py, retrieval_engine*.py, redflag_dashboard_v6.html",
+  "notes": [
+   "dtw_mode legacy_full_path reproduces kde_engine_v3.py, which builds the base-event DTW path from realised future returns (outcome leakage). Use pre_event_only for live forecasting.",
+   "quantile_mode legacy_fixed_mid reproduces the fixed base quantile '40%-60%' in kde_engine_v3.py."
+  ]
+ },
+ "paths": {
+  "train_corpus": "memory_2001_2023/price_event_memory.json",
+  "test_corpus": "memory_2024_2026/df_major_memory_2024_2026.jsonl",
+  "prices": "data/oil_prices_full.xlsx",
+  "vol_index": "crude_oil_data/oil_price_data/CBOE Crude Oil Volatility Historical Data.csv",
+  "retrieval_dir": "retrieval_output_v3/per_event",
+  "kde_dir": "kde_output_v3",
+  "dashboard": "scripts/redflag_dashboard_v6.html"
+ },
+ "prices": {
+  "date_col": null,
+  "columns": {
+   "Crude Oil-WTI Spot Cushing U$/BBL": "PX",
+   "Crude Oil WTI NYMEX Close M U$/BBL": "PX_ALT",
+   "NYMEX Crude Oil WTI M1-M2 Spread": "SPREAD",
+   "Crude Oil Brent US M1 U$/BBL": "FRONT",
+   "Crude Oil Brent US M2 U$/BBL": "SECOND"
+  },
+  "vol_name": "OVX",
+  "vol_date_format": "%m/%d/%Y",
+  "vol_date_col": "Date",
+  "vol_value_col": "Price",
+  "ffill_limit": 5,
+  "nearest_max_days": 5,
+  "forward_max_days": 10,
+  "percentile_lookback_years": 5
+ },
+ "corpus_fields": {
+  "price_nodes": {
+   "-30": "price_t_minus_30",
+   "-15": "price_t_minus_15",
+   "-7": "price_t_minus_7",
+   "0": "price",
+   "7": "price_t_plus_7",
+   "15": "price_t_plus_15",
+   "30": "price_t_plus_30"
+  },
+  "spread_nodes": {
+   "0": "Spread_M1_M2",
+   "7": "Spread_M1_M2_t_plus_7",
+   "15": "Spread_M1_M2_t_plus_15",
+   "30": "Spread_M1_M2_t_plus_30",
+   "-7": "Spread_M1_M2_t_minus_7",
+   "-15": "Spread_M1_M2_t_minus_15",
+   "-30": "Spread_M1_M2_t_minus_30"
+  },
+  "date": "date",
+  "event_id": "event_id",
+  "embedding": "bert_embeddings",
+  "quantile": "Quantile_Category",
+  "event_type": [
+   "Event type",
+   "Event_type",
+   "Event Types",
+   "category"
+  ],
+  "polarity": "Polarity",
+  "text": [
+   "text",
+   "combined_text",
+   "headline"
+  ],
+  "embedding_dim": 768
+ },
+ "retrieval": {
+  "tau": 0.75,
+  "top_k": 50,
+  "recency_lambda": 0.05,
+  "exclude_event_types": [
+   "position-high",
+   "position-low",
+   "position_high",
+   "position_low",
+   "grow-strong",
+   "grow_strong",
+   "movement-flat",
+   "movement_flat",
+   "nan",
+   "",
+   "none"
+  ],
+  "embargo_days": 0
+ },
+ "kde": {
+  "horizons": [
+   7,
+   15,
+   30
+  ],
+  "price_nodes": [
+   -30,
+   -15,
+   -7,
+   0,
+   7,
+   15,
+   30
+  ],
+  "min_analogues": 25,
+  "tau_fallbacks": [
+   0.9,
+   0.87,
+   0.85,
+   0.82,
+   0.8,
+   0.77,
+   0.75,
+   0.7,
+   0.65,
+   0.0
+  ],
+  "w_sim": 0.5,
+  "w_quantile": 0.2,
+  "w_dtw": 0.3,
+  "quantile_sigma": 20.0,
+  "quantile_midpoints": {
+   "5%": 2.5,
+   "5%-20%": 12.5,
+   "20%-30%": 25.0,
+   "30%-40%": 35.0,
+   "40%-60%": 50.0,
+   "60%-80%": 70.0,
+   "80%-90%": 85.0,
+   "90%+": 95.0,
+   "0%-20%": 10.0,
+   "20%-40%": 30.0,
+   "80%-100%": 90.0
+  },
+  "quantile_mode": "legacy_fixed_mid",
+  "legacy_base_quantile": "40%-60%",
+  "dtw_mode": "legacy_full_path",
+  "dtw_radius": 2,
+  "tail_threshold_pct": 10.0,
+  "min_bandwidth_pct": 1.0,
+  "red_flag_p_down": 0.2,
+  "signal": {
+   "median_abs": 2.0,
+   "p5_floor": -5.0,
+   "p95_cap": 5.0
+  },
+  "exclude_windows": [
+   [
+    "2020-02-15",
+    "2020-07-01"
+   ]
+  ],
+  "n_grid": 1000
+ },
+ "dashboard": {
+  "api_url": "http://localhost:8000",
+  "composite_weights": {
+   "info": 0.5,
+   "behav": 0.3,
+   "struct": 0.2
+  },
+  "informational": {
+   "sev_pts": 45,
+   "sim_floor": 0.7,
+   "sim_span": 0.28,
+   "sim_pts": 30,
+   "count_ref": 50,
+   "count_pts": 15,
+   "tau_floor": 0.65,
+   "tau_span": 0.25,
+   "tau_pts": 10
+  },
+  "behavioural": {
+   "fade_ratio": 1.15,
+   "skew_ref": 0.45,
+   "skew_pts": 55,
+   "agree_floor": 0.5,
+   "agree_span": 0.45,
+   "agree_pts": 45
+  },
+  "structural": {
+   "curve_flat_band": 0.1,
+   "backwardation_pts": 45,
+   "contango_pts": 40,
+   "flat_pts": 18,
+   "curve_mag_scale": 1.5,
+   "mag_pts": 15,
+   "vol_lo": 22,
+   "vol_span": 26,
+   "vol_pts": 40
+  },
+  "ticket": {
+   "trade_median": 1.0,
+   "hedge_score": 70
+  },
+  "vol_label": "OVX",
+  "conviction": {
+   "high": 70,
+   "medium": 45
+  },
+  "label_cutoffs": {
+   "critical": 80,
+   "high": 60,
+   "monitor": 40
+  }
+ },
+ "backtest": {
+  "horizon": 15,
+  "no_trade_band": 0.5,
+  "tail_veto": 0.25,
+  "cost_bps": 5
+ },
+ "event_keywords": {
+  "Geopolitical Risk": {
+   "severity": 4,
+   "words": [
+    "war",
+    "attack",
+    "military",
+    "invasion",
+    "strait",
+    "hormuz",
+    "sanction",
+    "embargo",
+    "geopolit",
+    "iran",
+    "russia",
+    "hamas",
+    "hezbollah",
+    "blockade",
+    "hostil"
+   ]
+  },
+  "Supply Shock": {
+   "severity": 3,
+   "words": [
+    "opec",
+    "cut",
+    "barrel",
+    "production",
+    "supply",
+    "oversupply",
+    "quota",
+    "shutdown",
+    "disruption"
+   ]
+  },
+  "Demand Signal": {
+   "severity": 2,
+   "words": [
+    "demand",
+    "pmi",
+    "china",
+    "slowdown",
+    "recession",
+    "growth",
+    "gdp",
+    "manufacturing"
+   ]
+  },
+  "Monetary Policy": {
+   "severity": 2,
+   "words": [
+    "fed",
+    "rate",
+    "inflation",
+    "dollar",
+    "monetary",
+    "interest",
+    "central bank",
+    "ecb"
+   ]
+  },
+  "Price Movement": {
+   "severity": 2,
+   "words": [
+    "price",
+    "rally",
+    "surge",
+    "plunge",
+    "crash",
+    "volatile",
+    "spike",
+    "slump"
+   ]
+  }
+ },
+ "default_event_type": {
+  "name": "Market News",
+  "severity": 1
+ },
+ "severity_labels": {
+  "1": "Low",
+  "2": "Moderate",
+  "3": "High",
+  "4": "Extreme"
+ },
+ "causal_keywords": {
+  "Supply Disruption": [
+   "supply",
+   "disruption",
+   "shutdown",
+   "outage",
+   "pipeline",
+   "cut",
+   "quota",
+   "opec"
+  ],
+  "Geopolitical Risk": [
+   "war",
+   "sanction",
+   "military",
+   "iran",
+   "russia",
+   "conflict",
+   "strait",
+   "blockade",
+   "attack"
+  ],
+  "Demand Signal": [
+   "demand",
+   "pmi",
+   "china",
+   "slowdown",
+   "growth",
+   "recession",
+   "consumption",
+   "gdp"
+  ],
+  "Monetary Policy": [
+   "fed",
+   "rate",
+   "inflation",
+   "dollar",
+   "ecb",
+   "central bank",
+   "interest",
+   "hawkish",
+   "dovish"
+  ],
+  "Price Momentum": [
+   "rally",
+   "surge",
+   "plunge",
+   "crash",
+   "spike",
+   "volatile",
+   "momentum",
+   "technical"
+  ],
+  "Inventory/Storage": [
+   "inventory",
+   "storage",
+   "eia",
+   "stockpile",
+   "build",
+   "draw",
+   "barrel",
+   "reserve"
+  ]
+ }
+}

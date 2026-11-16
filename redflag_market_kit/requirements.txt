@@ -1,0 +1,13 @@
+numpy
+pandas
+scipy
+fastapi
+uvicorn
+openpyxl
+# dashboard_app.py (Streamlit visual layer, not part of the original kit)
+streamlit
+plotly
+scikit-learn
+# optional
+arch      # GARCH(1,1) benchmark + FEI (skipped gracefully if absent)
+httpx     # only for the API tests (FastAPI TestClient)
