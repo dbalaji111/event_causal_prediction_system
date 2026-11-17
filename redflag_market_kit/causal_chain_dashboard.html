@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Causal Chain Analyses</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@600;700&family=Spectral:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+</head>
+<body>
+<style>
+/* Layout: sticky header -> left event feed, center chain (sankey + next-type bars + lists),
+   right overview (topic transition heatmap + method note). Same house palette as the Event
+   Risk Terminal (sibling product), violet instead of amber as this page's own accent since
+   it reasons about event-type succession, not price risk. */
+:root{
+  --ink:#0A0E14; --panel:#0F1520; --panel-2:#131B28; --line:#1D2836; --line-2:#2A3848;
+  --text:#D9DFE7; --muted:#68788C; --faint:#3D4B5C;
+  --violet:#9B7FD4; --violet-dim:#9B7FD422; --steel:#5B8DB8; --steel-dim:#5B8DB822;
+  --up:#4CAF7D; --down:#D95757; --warn:#E2B23C;
+  --sans:'IBM Plex Sans',system-ui,sans-serif; --cond:'IBM Plex Sans Condensed',var(--sans);
+  --mono:'IBM Plex Mono',ui-monospace,monospace; --serif:'Spectral',Georgia,serif;
+  --r:6px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{
+  background:var(--ink);color:var(--text);font-family:var(--sans);font-size:13px;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:120px 120px;background-attachment:fixed;
+}
+body::before{content:"";position:fixed;inset:0;background:radial-gradient(1200px 500px at 50% -10%,#1c14291a,transparent);pointer-events:none}
+::selection{background:var(--violet);color:var(--ink)}
+button{font-family:var(--sans);cursor:pointer}
+:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+
+.cmdbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:20px;padding:10px 22px;
+  background:#0A0E14ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.wordmark{font-family:var(--cond);font-weight:700;font-size:16px;letter-spacing:.04em}
+.wordmark b{color:var(--violet)}
+.wordmark span{font-family:var(--mono);font-size:10px;color:var(--muted);font-weight:400;margin-left:8px;letter-spacing:.08em}
+.cmdbar .spacer{flex:1}
+.tape{display:flex;gap:18px}
+.tape .t{display:flex;flex-direction:column;align-items:flex-end;font-family:var(--mono)}
+.tape .k{font-size:8px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+.tape .v{font-size:14px;font-weight:700}
+.link-out{font-family:var(--mono);font-size:10px;color:var(--steel);text-decoration:none;border:1px solid var(--line-2);border-radius:4px;padding:5px 10px}
+.link-out:hover{border-color:var(--steel)}
+
+.calband{max-width:1560px;margin:12px auto 0;padding:0 22px}
+.calMsg{display:none;background:var(--violet-dim);border:1px solid var(--violet);border-radius:6px;padding:9px 14px;font-size:11px;color:#C9B8EC;line-height:1.6}
+
+.grid{max-width:1560px;margin:14px auto;padding:0 22px;display:grid;grid-template-columns:310px 1fr 330px;gap:14px;align-items:start}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+.phdr{font-family:var(--cond);font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--text);padding:11px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.phdr .tag{font-family:var(--mono);font-weight:400;font-size:10px;color:var(--muted);letter-spacing:.02em;text-transform:none;margin-left:auto}
+.pbody{padding:12px 14px}
+.empty{color:var(--faint);font-size:11px;text-align:center;padding:20px 10px;line-height:1.7}
+
+.feed{max-height:720px;overflow-y:auto}
+.ev{display:flex;align-items:flex-start;gap:8px;padding:9px 6px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:4px}
+.ev:hover{background:#ffffff06}
+.ev.sel{background:var(--violet-dim);border-left:2px solid var(--violet)}
+.ev .h{font-size:11.5px;line-height:1.4;color:var(--text)}
+.ev .m{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:3px;display:flex;gap:6px;align-items:center}
+.ev .edge-ct{font-family:var(--mono);font-size:9px;color:var(--violet);border:1px solid var(--violet);border-radius:3px;padding:1px 5px;white-space:nowrap}
+
+.selected-box{background:var(--panel-2);border:1px solid var(--line-2);border-radius:6px;padding:12px;margin-bottom:12px}
+.selected-box .lbl{font-family:var(--mono);font-size:9px;color:var(--violet);letter-spacing:.1em;text-transform:uppercase;margin-bottom:5px}
+.selected-box .txt{font-size:13px;line-height:1.5}
+.selected-box .meta{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:6px}
+
+.chain-col-hdr{font-size:9px;letter-spacing:.12em;color:var(--steel);text-transform:uppercase;margin:4px 0 8px}
+.chain-item{padding:8px 10px;border:1px solid var(--line);border-radius:5px;margin-bottom:6px;font-size:11px;line-height:1.5}
+.chain-item .ht{color:var(--text)}
+.chain-item .meta{font-family:var(--mono);font-size:9.5px;color:var(--muted);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap}
+.chain-item .score{color:var(--violet);font-weight:700}
+
+.kv{display:flex;justify-content:space-between;padding:4px 0;font-size:11px;border-bottom:1px solid var(--line)}
+.kv .k{color:var(--muted)}.kv .v{font-weight:600;font-family:var(--mono)}
+
+.note{font-family:var(--mono);font-size:10px;color:var(--faint);line-height:1.7;padding:12px 14px}
+.note b{color:var(--muted)}
+
+@media(max-width:1180px){ .grid{grid-template-columns:1fr 1fr} .grid .col-left{grid-column:1/-1} }
+@media(max-width:780px){ .grid{grid-template-columns:1fr} .tape{display:none} }
+</style>
+
+<div class="cmdbar">
+  <div class="wordmark">BRAHMA<b>N</b>DA <span>CAUSAL CHAIN ANALYSES · XAU</span></div>
+  <div class="spacer"></div>
+  <div class="tape">
+    <div class="t"><span class="k">Events</span><span class="v" id="tapeEvents">—</span></div>
+    <div class="t"><span class="k">Links</span><span class="v" id="tapeEdges" style="color:var(--violet)">—</span></div>
+    <div class="t"><span class="k">Method</span><span class="v" id="tapeMethod" style="font-size:10px;color:var(--muted)">—</span></div>
+  </div>
+</div>
+
+<div class="calband">
+  <div class="calMsg" id="calMsg">
+    Links are scored by TF-IDF lexical overlap between one event's extracted effect text and a later
+    event's extracted cause text — a placeholder for a real causal model, not semantic understanding.
+    This page reasons about <b>which event type tends to follow</b>, never a price number — see the
+    Methodology panel for what a BART-based causal model would replace here.
+  </div>
+</div>
+
+<div class="grid">
+  <div class="col-left">
+    <div class="panel">
+      <div class="phdr">Event Feed <span class="tag" id="feedTag">loading…</span></div>
+      <div class="pbody" style="padding:8px">
+        <div class="feed" id="feedList"><div class="empty">Loading causal_chain_snapshot.json…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="phdr">Selected Event <span class="tag" id="selTag"></span></div>
+      <div class="pbody">
+        <div id="selectedBox"><div class="empty">Select an event from the feed on the left.</div></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div class="phdr">Causal Chain — past causes → this event → likely next events
+        <span class="tag" id="chainMeta"></span></div>
+      <div class="pbody">
+        <div id="chainSankey" style="min-height:0"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div class="phdr">Likely Next Event Type <span class="tag">qualitative — not a return forecast</span></div>
+      <div class="pbody">
+        <div id="nextTypeChart" style="min-height:0"></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">
+      <div class="panel">
+        <div class="phdr" style="font-size:10px">What led here</div>
+        <div class="pbody" id="incomingList"><div class="empty">—</div></div>
+      </div>
+      <div class="panel">
+        <div class="phdr" style="font-size:10px">What tends to follow</div>
+        <div class="pbody" id="outgoingList"><div class="empty">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="phdr">Topic Transition Map <span class="tag">corpus-wide</span></div>
+      <div class="pbody">
+        <div id="transHeatmap" style="min-height:0"></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6">
+          Row = a source event's type. Cell = share of that type's kept outgoing links landing in each
+          successor type, weighted by link score. Read a row, not a column.
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div class="phdr">Methodology</div>
+      <div class="note">
+        <b>What this is:</b> a directed graph linking one event's extracted <i>effect</i> text to a later
+        event's extracted <i>cause</i> text (gold_cause / gold_effect, from the same corpus the Event Risk
+        Terminal uses), within a 120-day window.<br><br>
+        <b>What scores the links today:</b> TF-IDF cosine similarity — lexical overlap, not semantic causal
+        reasoning. Most event pairs score zero; roughly 3 in 10 events have at least one kept link.<br><br>
+        <b>What replaces it:</b> a BART-based causal model, trained/run locally (outside this sandbox — no
+        network access here to even download a transformer). It would re-score the same effect→cause pairs
+        with real entailment/causal understanding instead of word overlap, plugging into the same
+        events/edges/transition_table schema this page already reads.<br><br>
+        <b>Read every number here as:</b> "historically, this is the event type that followed" — not a
+        price move, not a probability of a specific dollar outcome.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const PLOT_BASE = { paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)",
+  font:{family:"IBM Plex Mono, monospace", size:10, color:"#68788C"}, margin:{l:42,r:12,t:8,b:30}, showlegend:false };
+const PLOT_CFG = {displayModeBar:false, responsive:true};
+const TYPE_COLORS = { "Asset Rotation":"#E29A3C","Central Bank Buying":"#5B8DB8","ETF & Retail Sentiment":"#4CAF7D",
+  "Inflation Hedge":"#D95757","Safe-Haven Demand":"#9B7FD4","Trade War Tariffs":"#E2B23C","Volatility Hedging":"#68788C" };
+
+let DATA = null, byId = new Map(), incomingOf = new Map(), outgoingOf = new Map(), feedOrder = [];
+
+async function boot(){
+  try{
+    const r = await fetch("causal_chain_snapshot.json");
+    DATA = await r.json();
+  }catch(e){
+    $("feedList").innerHTML = `<div class="empty">Could not load causal_chain_snapshot.json: ${e.message}<br>Open this page from the same folder it was published in.</div>`;
+    return;
+  }
+  DATA.events.forEach(e => byId.set(e.id, e));
+  function addTo(map, key, edge){
+    if(!map.has(key)) map.set(key, []);
+    map.get(key).push(edge);
+  }
+  DATA.edges.forEach(ed => {
+    addTo(outgoingOf, ed.source, ed);
+    addTo(incomingOf, ed.target, ed);
+  });
+  const withEdges = new Set([...outgoingOf.keys(), ...incomingOf.keys()]);
+  feedOrder = DATA.events.filter(e => withEdges.has(e.id)).sort((a,b) => b.date.localeCompare(a.date));
+
+  $("tapeEvents").textContent = DATA.meta.n_events.toLocaleString();
+  $("tapeEdges").textContent = DATA.meta.n_edges.toLocaleString();
+  $("tapeMethod").textContent = "TF-IDF (placeholder)";
+  $("feedTag").textContent = `${feedOrder.length.toLocaleString()} linked events`;
+  $("feedList").innerHTML = feedOrder.map((e,i) => {
+    const nOut = (outgoingOf.get(e.id)||[]).length, nIn = (incomingOf.get(e.id)||[]).length;
+    return `<div class="ev" id="ev${i}" onclick="selectEvent(${i})">
+      <div style="flex:1;min-width:0">
+        <div class="h">${e.text}</div>
+        <div class="m"><span style="color:${TYPE_COLORS[e.event_type]||'var(--muted)'}">${e.event_type}</span><span>· ${e.date}</span></div>
+      </div>
+      <span class="edge-ct">${nIn}↦●↦${nOut}</span>
+    </div>`;
+  }).join("");
+
+  drawHeatmap();
+  if(feedOrder.length) selectEvent(0);
+}
+
+function selectEvent(i){
+  document.querySelectorAll(".ev.sel").forEach(x=>x.classList.remove("sel"));
+  $("ev"+i)?.classList.add("sel");
+  const e = feedOrder[i];
+  const inc = (incomingOf.get(e.id)||[]).slice().sort((a,b)=>b.score-a.score);
+  const out = (outgoingOf.get(e.id)||[]).slice().sort((a,b)=>b.score-a.score);
+
+  $("selTag").textContent = `${e.date} · ${e.event_type}`;
+  $("selectedBox").innerHTML = `<div class="selected-box">
+      <div class="lbl">Base event</div>
+      <div class="txt">${e.text}</div>
+      <div class="meta">Cause: ${e.cause}</div>
+      <div class="meta">Effect: ${e.effect}</div>
+    </div>`;
+
+  drawChainSankey(e, inc, out);
+  drawNextType(e);
+  renderChainList("incomingList", inc, "source", true);
+  renderChainList("outgoingList", out, "target", false);
+}
+
+function renderChainList(elId, edges, keyField, isIncoming){
+  const el = $(elId);
+  if(!edges.length){ el.innerHTML = '<div class="empty">No link cleared the similarity threshold.</div>'; return; }
+  el.innerHTML = edges.slice(0,6).map(ed => {
+    const other = byId.get(ed[keyField]);
+    if(!other) return "";
+    const gapLabel = isIncoming ? `${ed.days_gap}d before` : `${ed.days_gap}d after`;
+    return `<div class="chain-item">
+      <div class="ht">${other.text}</div>
+      <div class="meta">
+        <span style="color:${TYPE_COLORS[other.event_type]||'var(--muted)'}">${other.event_type}</span>
+        <span>${other.date}</span><span>${gapLabel}</span><span class="score">sim ${ed.score.toFixed(2)}</span>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function drawChainSankey(e, inc, out){
+  const incN = inc.slice(0,5), outN = out.slice(0,5);
+  if(!incN.length && !outN.length){ Plotly.purge("chainSankey"); $("chainMeta").textContent = "no links"; return; }
+  const labels = [
+    ...incN.map(ed => (byId.get(ed.source)?.text||"?").slice(0,34)+"…"),
+    "SELECTED: " + e.text.slice(0,30)+"…",
+    ...outN.map(ed => (byId.get(ed.target)?.text||"?").slice(0,34)+"…"),
+  ];
+  const selIdx = incN.length;
+  const source = [], target = [], value = [], color = [];
+  incN.forEach((ed,i) => { source.push(i); target.push(selIdx); value.push(ed.score); color.push("rgba(91,141,184,0.4)"); });
+  outN.forEach((ed,i) => { source.push(selIdx); target.push(selIdx+1+i); value.push(ed.score); color.push("rgba(155,127,212,0.4)"); });
+  const nodeColor = labels.map((_,i) => i===selIdx ? "#9B7FD4" : i<selIdx ? "#5B8DB8" : "#E29A3C");
+  $("chainSankey").innerHTML = "";
+  Plotly.newPlot("chainSankey", [{
+    type:"sankey", orientation:"h",
+    node:{ pad:14, thickness:13, line:{color:"#1D2836",width:0.6}, label:labels, color:nodeColor,
+      hovertemplate:"%{label}<extra></extra>" },
+    link:{ source, target, value, color, hovertemplate:"similarity %{value:.2f}<extra></extra>" },
+  }], { ...PLOT_BASE, height:240, font:{...PLOT_BASE.font, size:9.5}, margin:{l:6,r:6,t:6,b:6} }, PLOT_CFG);
+  $("chainMeta").textContent = `${incN.length} incoming · ${outN.length} outgoing`;
+}
+
+function drawNextType(e){
+  const row = DATA.transition_table.table[e.event_type];
+  if(!row){ Plotly.purge("nextTypeChart"); return; }
+  const entries = Object.entries(row).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+  if(!entries.length){ $("nextTypeChart").innerHTML = '<div class="empty">No successor type clears the threshold for this event type.</div>'; return; }
+  const types = entries.map(([t])=>t), vals = entries.map(([,v])=>v*100);
+  $("nextTypeChart").innerHTML = "";
+  Plotly.newPlot("nextTypeChart", [{
+    type:"bar", orientation:"h", x:vals, y:types, marker:{color:types.map(t=>TYPE_COLORS[t]||"#68788C")},
+    text:vals.map(v=>v.toFixed(0)+"%"), textposition:"outside", textfont:{size:10,color:"#D9DFE7"},
+    hovertemplate:"%{y}: %{x:.1f}%<extra></extra>",
+  }], { ...PLOT_BASE, height:180, margin:{l:140,r:40,t:8,b:26},
+    xaxis:{title:{text:"share of "+e.event_type+"'s kept links",font:{size:9}}, gridcolor:"#1D2836", range:[0,Math.max(...vals)*1.25]},
+    yaxis:{autorange:"reversed"},
+  }, PLOT_CFG);
+}
+
+function drawHeatmap(){
+  const { types, table } = DATA.transition_table;
+  const z = types.map(src => types.map(tgt => (table[src][tgt]||0)*100));
+  Plotly.newPlot("transHeatmap", [{
+    type:"heatmap", x:types, y:types, z, colorscale:[[0,"#0F1520"],[0.5,"#5B427A"],[1,"#C9A6F0"]],
+    hovertemplate:"%{y} → %{x}: %{z:.1f}%<extra></extra>", showscale:false,
+    xgap:2, ygap:2,
+  }], { ...PLOT_BASE, height:300, margin:{l:118,r:8,t:8,b:90},
+    xaxis:{tickangle:-45, tickfont:{size:8.5}, side:"bottom"}, yaxis:{tickfont:{size:8.5}, autorange:"reversed"},
+  }, PLOT_CFG);
+}
+
+boot();
+</script>
+</body>
+</html>
