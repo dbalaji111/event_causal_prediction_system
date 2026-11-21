@@ -101,6 +101,8 @@ def main():
     }
 
     train_headlines = {eid: train_text.get(eid, "")[:160] for eid in referenced_train_ids}
+    src_file = ROOT / "price_source.json"
+    price_source = json.loads(src_file.read_text())["source"] if src_file.exists() else "illustrative"
 
     snapshot = {
         "market": {"display_name": cfg["display_name"], "ticker_label": cfg["ticker_label"],
@@ -110,10 +112,11 @@ def main():
         "train_headlines": train_headlines,
         "price_series": price_series,
         "backtest_rows": backtest_rows,
-        "meta": {"n_train": len(retr.train), "n_test": len(retr.test),
-                 "generated_note": "Real redflag_kit output over the real gold article corpus; "
-                                    "price/vol are an illustrative historical approximation, not a feed "
-                                    "(see markets/gold.json status.notes)."},
+        "meta": {"n_train": len(retr.train), "n_test": len(retr.test), "price_source": price_source,
+                 "generated_note": "Real redflag_kit output over the real gold article corpus; " + (
+                     "prices from the supplied price file." if price_source == "real" else
+                     "price/vol are an illustrative historical approximation, not a feed "
+                     "(see markets/gold.json status.notes).")},
     }
 
     out = Path(__file__).resolve().parent.parent / "static_snapshot.json"

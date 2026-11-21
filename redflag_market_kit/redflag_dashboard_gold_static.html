@@ -706,8 +706,10 @@ table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:
    mockAnalyze() heuristic below, clearly marked simulated — there's no
    live embedding model here to classify genuinely new text. */
 const $  = id => document.getElementById(id);
-const S  = { result:null, eventIdx:null, nAnalyzed:0, nCrit:0, nBi:0, report:null, behavioural:null };
+const S  = { result:null, eventIdx:null, nAnalyzed:0, nCrit:0, nBi:0, report:null, behavioural:null, liveEvent:null, req:0 };
 let DATA = null;
+let LIVE = null;   // the server's /api/health answer when this page is served by deploy/server.py, else null
+const escapeHtml = t => String(t).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 const PLOT_BASE = {
   paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)",
@@ -756,15 +758,23 @@ async function boot(){
   try{
     const r = await fetch("static_snapshot.json");
     DATA = await r.json();
-    $("liveLbl").textContent = "STATIC SNAPSHOT";
-    if((DATA.market.uncalibrated_params||[]).length){
+    try{
+      const h = await fetch("api/health");
+      const j = h.ok ? await h.json() : null;
+      if(j && j.status === "ok") LIVE = j;
+    }catch(e){ LIVE = null; }
+    $("liveLbl").textContent = LIVE ? "LIVE" : "STATIC SNAPSHOT";
+    if(LIVE) $("inp").placeholder = "Paste any gold headline to analyse it live, or select an event from the feed…";
+    const illustrative = (LIVE ? LIVE.price_source : (DATA.meta||{}).price_source) !== "real";
+    if((DATA.market.uncalibrated_params||[]).length || illustrative){
       const m = $("calMsg");
       m.style.display = "block";
-      m.textContent = `⚠ ${DATA.market.uncalibrated_params.length} parameter(s) are uncalibrated placeholders `
-        + `(${DATA.market.uncalibrated_params.slice(0,4).join(", ")}${DATA.market.uncalibrated_params.length>4?"…":""}). `
-        + `Scores are directionally useful but not yet reviewed for gold — see REDFLAG_SCHEMA.md §9/§12. `
-        + `Price history is also an illustrative historical approximation, not a live feed — see ${""}`
-        + `markets/gold.json's status.notes.`;
+      m.textContent = ((DATA.market.uncalibrated_params||[]).length
+        ? `⚠ ${DATA.market.uncalibrated_params.length} parameter(s) are uncalibrated placeholders `
+          + `(${DATA.market.uncalibrated_params.slice(0,4).join(", ")}${DATA.market.uncalibrated_params.length>4?"…":""}). `
+          + `Scores are directionally useful but not yet reviewed for gold — see REDFLAG_SCHEMA.md §9/§12. ` : "")
+        + (illustrative ? `Price history is an illustrative historical approximation, not a live feed — `
+          + `see markets/gold.json's status.notes.` : "");
     }
   }catch(e){
     $("liveBadge").classList.add("sim");
@@ -804,46 +814,43 @@ function selectEvent(i){
 
 /* ── analyze ──
    Feed events: everything below comes straight from the precomputed snapshot.
-   Free text: mockAnalyze() heuristic (no live embedding model to classify it). */
-function analyze(){
+   Free text: analysed by the server when the page is served live (deploy/server.py), otherwise the
+   mockAnalyze() heuristic (no embedding model in a static page). */
+async function liveAnalyze(text){
+  const r = await fetch("api/analyze", {method:"POST", headers:{"Content-Type":"application/json"},
+                                         body: JSON.stringify({headline: text})});
+  const j = await r.json().catch(() => ({}));
+  if(r.ok) return j;
+  const detail = Array.isArray(j.detail) ? "Headlines need 10 to 1,000 characters." : (j.detail || `Server error ${r.status}.`);
+  throw new Error(detail);
+}
+
+async function analyze(){
   const text = $("inp").value.trim();
   if(!text) return;
+  const req = ++S.req;
   setStage(0,true); setVerdict(null,"WORKING");
 
   let d;
   if(S.eventIdx != null && DATA){
-    const e = DATA.events[S.eventIdx];
-    const sc = e.score;
-    const similar_events = e.analogues.map(a => ({...a, summary: DATA.train_headlines[a.event_id] || ""}));
-    // ~22% of real events have no precomputed KDE posterior at any horizon (too few analogues
-    // before that date even after the full tau-relaxation ladder) - fall back to empirical
-    // percentiles of the real retrieved analogues' own r7/r15/r30, not a fabricated number.
-    const cone = {...e.forecast_cone};
-    for(const h of [7,15,30]){
-      if(!cone[String(h)]){
-        const rs = similar_events.map(a=>a["r"+h]).filter(v=>v!=null).sort((a,b)=>a-b);
-        if(rs.length>=5) cone[String(h)] = {
-          p5: pct(rs,5), median: pct(rs,50), p95: pct(rs,95), is_bimodal:false,
-          tail_weight: rs.filter(v=>Math.abs(v)>10).length/rs.length, _approx:true,
-        };
-      }
+    S.liveEvent = null;
+    d = resultFromEvent(DATA.events[S.eventIdx]);
+  } else if(LIVE){
+    $("anaTag").textContent = "analysing live…";
+    let e;
+    try{ e = await liveAnalyze(text); }
+    catch(err){
+      if(req !== S.req) return;
+      setStage(0); setVerdict(null,"ERROR");
+      $("anaTag").textContent = "";
+      $("anaList").innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+      return;
     }
-    d = {
-      headline: e.text, event_id: e.event_id, event_type: sc.event_type, severity: sc.severity,
-      severity_label: (DATA.market.severity_labels[String(sc.severity)] || "—"),
-      red_flag_score: sc.composite.score, red_flag_label: sc.composite.label.toUpperCase(),
-      recommendation: `Ticket: ${sc.action} · Conviction: ${sc.composite.conviction} · Behaviour: ${sc.behavioural.mode}`,
-      similar_events,
-      forecast_cone: cone,
-      kde_p5: cone["15"] ? cone["15"].p5 : null,
-      kde_median: cone["15"] ? cone["15"].median : null,
-      kde_p95: cone["15"] ? cone["15"].p95 : null,
-      is_bimodal: cone["15"] ? !!cone["15"].is_bimodal : false,
-      tail_weight: cone["15"] ? cone["15"].tail_weight : null,
-      _cone_approx: cone["15"] ? !!cone["15"]._approx : false,
-      _simulated: false,
-    };
+    if(req !== S.req) return;
+    S.liveEvent = e;
+    d = resultFromEvent(e);
   } else {
+    S.liveEvent = null;
     d = mockAnalyze(text);
   }
   S.result = d;
@@ -852,7 +859,44 @@ function analyze(){
   setStage(1); renderAnalogues(d);
   drawForecastCone(d);
   $("runBtn").disabled = false;
-  $("anaTag").textContent = `${(d.similar_events||[]).length} retrieved · ${d.event_type||"?"}`;
+  $("anaTag").textContent = `${(d.similar_events||[]).length} retrieved · ${d.event_type||"?"}`
+    + (d._live ? ` · analysed live in ${(d._live.elapsed_ms/1000).toFixed(1)}s`
+                 + (d._live.price_context ? "" : " · no price data for this date") : "");
+  if(d._live) renderEmbeddingMap();
+}
+
+function resultFromEvent(e){
+  const sc = e.score;
+  const similar_events = e.analogues.map(a => ({...a, summary: a.summary || DATA.train_headlines[a.event_id] || ""}));
+  // ~22% of real events have no precomputed KDE posterior at any horizon (too few analogues
+  // before that date even after the full tau-relaxation ladder) - fall back to empirical
+  // percentiles of the real retrieved analogues' own r7/r15/r30, not a fabricated number.
+  const cone = {...e.forecast_cone};
+  for(const h of [7,15,30]){
+    if(!cone[String(h)]){
+      const rs = similar_events.map(a=>a["r"+h]).filter(v=>v!=null).sort((a,b)=>a-b);
+      if(rs.length>=5) cone[String(h)] = {
+        p5: pct(rs,5), median: pct(rs,50), p95: pct(rs,95), is_bimodal:false,
+        tail_weight: rs.filter(v=>Math.abs(v)>10).length/rs.length, _approx:true,
+      };
+    }
+  }
+  return {
+    headline: e.text, event_id: e.event_id, event_type: sc.event_type, severity: sc.severity,
+    severity_label: (DATA.market.severity_labels[String(sc.severity)] || "—"),
+    red_flag_score: sc.composite.score, red_flag_label: sc.composite.label.toUpperCase(),
+    recommendation: `Ticket: ${sc.action} · Conviction: ${sc.composite.conviction} · Behaviour: ${sc.behavioural.mode}`,
+    similar_events,
+    forecast_cone: cone,
+    kde_p5: cone["15"] ? cone["15"].p5 : null,
+    kde_median: cone["15"] ? cone["15"].median : null,
+    kde_p95: cone["15"] ? cone["15"].p95 : null,
+    is_bimodal: cone["15"] ? !!cone["15"].is_bimodal : false,
+    tail_weight: cone["15"] ? cone["15"].tail_weight : null,
+    _cone_approx: cone["15"] ? !!cone["15"]._approx : false,
+    _simulated: false,
+    _live: e.live || null,
+  };
 }
 
 /* ── analogues ── */
@@ -1109,7 +1153,8 @@ async function ensureSample(){
   if(AI_SAMPLE === null){
     AI_SAMPLE = (typeof claude!=="undefined" && claude.use) ? (await claude.use("sample")) || false : false;
   }
-  if(!AI_SAMPLE) $("aiMeta").textContent = "Not available in this view — open this page as a Claude Artifact on claude.ai to use it.";
+  if(!AI_SAMPLE) $("aiMeta").textContent = LIVE ? "Not enabled on this server yet."
+    : "Not available in this view — open this page as a Claude Artifact on claude.ai to use it.";
   refreshAiButton();
   return AI_SAMPLE;
 }
@@ -1327,8 +1372,9 @@ function btRenderResults(res){
 /* ── GVZ ── */
 function loadOVX(){
   const ps = DATA.price_series;
-  const dates = ps.dates.slice(-60), vals = ps.vol.slice(-60).map(v=>v==null?0:v);
-  if(!vals.length){ $("ovxPlot").innerHTML='<div class="empty">GVZ unavailable.</div>'; return; }
+  const raw = ps.vol.slice(-60);
+  if(!raw.some(v => v != null)){ $("ovxPlot").innerHTML='<div class="empty">GVZ unavailable.</div>'; return; }
+  const dates = ps.dates.slice(-60), vals = raw.map(v=>v==null?0:v);
   const cur = vals[vals.length-1];
   $("tapeOvx").textContent = (+cur).toFixed(1);
   $("ovxPlot").innerHTML = "";
@@ -1467,9 +1513,10 @@ function mapBaseTraces(){
 
 function mapHighlightTraces(){
   if(!MAPD) return [];
-  if(S.eventIdx == null || !DATA){ $("mapSelMeta").textContent = "Select an event above to light it up here."; return []; }
-  const e = DATA.events[S.eventIdx];
-  const sel = mapIndex.get(e.event_id);
+  const e = S.eventIdx != null && DATA ? DATA.events[S.eventIdx] : S.liveEvent;
+  if(!e){ $("mapSelMeta").textContent = "Select an event above to light it up here."; return []; }
+  const sel = mapIndex.get(e.event_id)
+    || (e.map_xyz ? {x:e.map_xyz[0], y:e.map_xyz[1], z:e.map_xyz[2], headline:"New headline: " + e.text} : null);
   const traces = [];
   const analogues = (e.analogues||[]).map(a=>mapIndex.get(a.event_id)).filter(Boolean);
   if(analogues.length){

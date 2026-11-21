@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import ast
 import json
-import re
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -27,28 +27,21 @@ OUT = Path(__file__).resolve().parent.parent / "embeddings_viz.json"
 N_CLUSTERS = 6          # same default as main_app.py's "cluster_k" slider
 BURST_WINDOW_DAYS = 10  # same default as main_app.py's "burst_window" slider
 
-_BYLINE_RE = re.compile(r"^.*?All Rights Reserved\.\s*", re.DOTALL)
-
-
-def _headline_or_snippet(headline: str, content: str) -> str:
-    if str(headline).strip().upper() != "UNKNOWN":
-        return str(headline)
-    body = _BYLINE_RE.sub("", str(content or ""), count=1).strip()
-    return (body[:140] + "…") if body else "UNKNOWN"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from build_real_gold_corpus import clean_gold_articles, headline_text  # noqa: E402  (same rows as the corpus)
 
 
 def main():
-    df = pd.read_csv(SRC)
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    df = df.dropna(subset=["Date", "gold_general_embedding"])
-    df = df[~df["Headline"].astype(str).str.contains("Search Summary", case=False, na=False)]
-    df = df[df["Doc_ID"].astype(str).str.match(r"^[A-Za-z0-9]{10,}$")]  # drops 2 malformed rows
+    df = clean_gold_articles(pd.read_csv(SRC))
+    df = df[df["Doc_ID"].astype(str).str.match(r"^[A-Za-z0-9]{10,}$")]  # drops 2 rows with malformed ids
     df = df.sort_values("Date").reset_index(drop=True)
 
     embeddings = np.vstack(df["gold_general_embedding"].apply(ast.literal_eval).apply(np.array).values)
 
-    # same PCA(3) projection as main_app.py's load_event_data()
-    xyz = PCA(n_components=3, random_state=42).fit_transform(embeddings)
+    # same PCA(3) projection as main_app.py's load_event_data(); its parameters are saved so the live
+    # server can place a new headline in the same 3D space
+    pca = PCA(n_components=3, random_state=42)
+    xyz = pca.fit_transform(embeddings)
 
     # same KMeans over full 384-d embeddings as compute_embedding_clusters()
     km = KMeans(n_clusters=N_CLUSTERS, random_state=42, n_init=10)
@@ -77,7 +70,7 @@ def main():
         points.append({
             "event_id": str(row["Doc_ID"]),
             "date": row["Date"].strftime("%Y-%m-%d"),
-            "headline": _headline_or_snippet(row["Headline"], row.get("Content", ""))[:160],
+            "headline": headline_text(row["Headline"], row.get("Content", ""), row["Doc_ID"])[:160],
             "topic": str(row["assigned_topic_bert"]),
             "relevance": None if pd.isna(row.get("gold_relevance_score")) else round(float(row["gold_relevance_score"]), 3),
             "x": round(float(xyz[i, 0]), 4), "y": round(float(xyz[i, 1]), 4), "z": round(float(xyz[i, 2]), 4),
@@ -98,6 +91,8 @@ def main():
              "n_events": int((temporal_cluster == j).sum())}
             for j, pd_ts in enumerate(peak_dates)
         ],
+        "pca": {"mean": [round(float(v), 7) for v in pca.mean_],
+                "components": [[round(float(v), 7) for v in row] for row in pca.components_]},
         "meta": {
             "n_points": len(points), "n_topic_clusters": N_CLUSTERS,
             "n_temporal_clusters": len(peak_dates), "burst_window_days": BURST_WINDOW_DAYS,

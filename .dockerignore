@@ -1,0 +1,10 @@
+.git
+**/__pycache__
+**/*.pyc
+data
+docs
+notebooks
+chain_runs
+redflag_market_kit/demo/data_root*
+scripts/*
+!scripts/causal_gold_articles_with_topics_bert.csv
