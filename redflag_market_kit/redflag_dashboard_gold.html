@@ -307,6 +307,8 @@ table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:
     <div class="t"><span class="k">Bimodal</span><span class="v" id="tapeBi" style="color:var(--violet)">0</span></div>
     <div class="t"><span class="k">GVZ</span><span class="v" id="tapeOvx" style="color:var(--crude)">—</span></div>
   </div>
+  <button class="btn ghost" onclick="openScenarios()" style="padding:6px 12px;font-size:11px;color:var(--crude);border-color:#E29A3C66"
+    title="Backtest scenario tests in a new window">Scenario tests ↗</button>
   <div class="live" id="liveBadge"><i></i><span id="liveLbl">CONNECTING</span></div>
 </div>
 
@@ -492,6 +494,8 @@ table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:
         <div class="f"><label>Cost bps</label><input type="number" id="btCost" value="5" step="1" min="0"></div>
         <button class="btn" id="btRunBtn" onclick="btRun()" style="padding:9px 22px">▶ Run backtest</button>
         <button class="btn ghost" onclick="btLoadLatest()" style="padding:9px 16px">Load last results</button>
+        <button class="btn ghost" onclick="openScenarios()" style="padding:9px 16px;color:var(--crude);border-color:#E29A3C66"
+          title="Walk-forward, Monte Carlo, monkey test and more on these settings, in a new window">Scenario tests ↗</button>
       </div>
       <div class="progress" id="btProg">
         <div class="msg"><span id="btMsg">Starting…</span><span id="btPct"></span></div>
@@ -1041,6 +1045,16 @@ function exportJSON(){
   a.download="analysis.json"; a.click(); URL.revokeObjectURL(a.href);
 }
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeReport(); });
+
+/* ── backtest scenario tests: opens redflag_scenarios_gold.html in a new window with the Validation settings ── */
+function openScenarios(){
+  const cfg = {horizon: +$("btHorizon").value, start_date: $("btStart").value, end_date: $("btEnd").value,
+               no_trade_band: +$("btBand").value, tail_veto: +$("btVeto").value, cost_bps: +$("btCost").value};
+  try { localStorage.setItem("brahmanda.gold.btcfg", JSON.stringify(cfg)); } catch (e) {}
+  const url = "redflag_scenarios_gold.html?api=" + encodeURIComponent(API) + "#cfg=" + encodeURIComponent(JSON.stringify(cfg));
+  const w = window.open(url, "brahmanda_scenarios");
+  if (w) w.focus(); else alert("Allow pop-ups for this page to open the scenario tests.");
+}
 
 /* ── backtest (Validation section) ── */
 let btPoller=null;

@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brahmanda Gold Scenario Tests</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0A0E14;--panel:#0F1520;--panel-2:#131B28;--line:#1D2836;--line-2:#2A3848;
+  --text:#D9DFE7;--muted:#7A8A9E;--faint:#4A596B;
+  --crude:#E29A3C;--steel:#5B8DB8;--up:#4CAF7D;--down:#D95757;--warn:#E2B23C;--violet:#9B7FD4;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;--cond:'IBM Plex Sans Condensed',var(--sans);--mono:'IBM Plex Mono',ui-monospace,monospace;--r:6px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--ink);color:var(--text);font-family:var(--sans);font-size:13px}
+button{font-family:var(--sans);cursor:pointer}
+input,select{font-family:var(--mono);color:var(--text)}
+:focus-visible{outline:2px solid var(--crude);outline-offset:2px}
+a{color:inherit;text-decoration:none}
+.cmdbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:12px;padding:10px 22px;background:#0A0E14ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.wordmark{font-family:var(--cond);font-weight:700;font-size:17px;letter-spacing:.14em}
+.wordmark b{color:var(--crude)}
+.wordmark span{font-family:var(--mono);font-weight:400;font-size:10px;color:var(--muted);letter-spacing:.08em;margin-left:10px}
+.spacer{flex:1}
+.navlink{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line-2);border-radius:var(--r);padding:6px 12px}
+.navlink:hover{color:var(--text);border-color:var(--muted)}
+.wrap{max-width:1640px;margin:16px auto;padding:0 22px;display:grid;grid-template-columns:400px 1fr;gap:14px;align-items:start}
+@media(max-width:1100px){.wrap{grid-template-columns:1fr}.cfg{position:static!important;max-height:none!important}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);margin-bottom:14px}
+.phdr{display:flex;align-items:baseline;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);font-family:var(--cond);font-weight:600;font-size:12px;letter-spacing:.14em;text-transform:uppercase}
+.phdr .tag{font-family:var(--mono);font-weight:400;font-size:10px;color:var(--muted);letter-spacing:.04em;text-transform:none;margin-left:auto}
+.pbody{padding:12px 14px}
+.cfg{position:sticky;top:58px;max-height:calc(100vh - 70px);overflow-y:auto}
+.cfgsum{font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.7}
+.cfgsum b{color:var(--text);font-weight:500}
+.sc-item{border-bottom:1px solid var(--line);padding:10px 14px}
+.sc-item .top{display:flex;gap:9px;align-items:flex-start}
+.sc-item .top input{margin-top:3px}
+.sc-item .t{font-weight:600;font-size:13px}
+.sc-item .src{font-family:var(--mono);font-size:10px;color:var(--crude);margin-top:2px}
+.sc-item .w{font-size:12px;color:var(--muted);line-height:1.5;margin-top:5px}
+.sc-item details summary{font-family:var(--mono);font-size:10px;color:var(--faint);cursor:pointer;margin-top:6px}
+.prm{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.prm label{display:flex;flex-direction:column;gap:3px;font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.06em}
+.prm input{background:var(--ink);border:1px solid var(--line-2);border-radius:4px;padding:6px 8px;font-size:11.5px;width:100%}
+.btn{background:var(--crude);color:var(--ink);border:none;border-radius:var(--r);padding:10px 22px;font-weight:700;font-size:13px}
+.btn:hover{filter:brightness(1.12)}.btn:disabled{filter:grayscale(.7);opacity:.55;cursor:default}
+.btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--line-2);font-weight:500;padding:7px 12px;font-size:11px}
+.btn.ghost:hover{color:var(--text);border-color:var(--muted);filter:none}
+.runbar{display:flex;gap:8px;padding:12px 14px;position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--line)}
+.runbar .btn:first-child{flex:1}
+.banner{border:1px solid var(--line-2);border-left:3px solid var(--steel);border-radius:0 var(--r) var(--r) 0;background:var(--panel);padding:10px 14px;margin-bottom:14px;font-size:12px;line-height:1.6;color:var(--muted)}
+.banner.err{border-left-color:var(--down);color:#e9b4b4}
+.banner b{color:var(--text)}
+.progress{display:none;margin-bottom:14px}
+.progress .track{height:4px;background:var(--ink);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.progress .track i{display:block;height:100%;width:40%;background:linear-gradient(90deg,var(--steel),var(--crude));animation:slide 1.2s infinite ease-in-out}
+@keyframes slide{0%{margin-left:-40%}100%{margin-left:100%}}
+.progress .msg{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-bottom:4px}
+.pill{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.08em;padding:3px 8px;border-radius:4px;border:1px solid}
+.pill.pass{color:var(--up);border-color:#4CAF7D66;background:#4CAF7D14}
+.pill.watch{color:var(--warn);border-color:#E2B23C66;background:#E2B23C14}
+.pill.fail,.pill.error{color:var(--down);border-color:#D9575766;background:#D9575714}
+.pill.info{color:var(--steel);border-color:#5B8DB866;background:#5B8DB814}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+.board a{display:flex;justify-content:space-between;gap:8px;align-items:center;background:var(--ink);border:1px solid var(--line);border-radius:4px;padding:9px 11px;font-size:12px}
+.board a:hover{border-color:var(--line-2)}
+.card .vtext{font-size:13px;line-height:1.55;margin:8px 0 4px}
+.card .what{font-size:12px;color:var(--muted);line-height:1.55}
+.card .params{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:6px;word-break:break-word}
+.sec{font-family:var(--cond);font-weight:600;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:16px 0 8px}
+.sc{overflow-x:auto}
+table.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;white-space:nowrap}
+.tbl th{color:var(--faint);text-align:right;font-weight:500;font-size:9px;letter-spacing:.08em;text-transform:uppercase;padding:6px 9px;border-bottom:1px solid var(--line)}
+.tbl th:first-child,.tbl td:first-child{text-align:left}
+.tbl td{padding:5px 9px;border-bottom:1px solid var(--line);text-align:right}
+.tbl tr:hover td{background:var(--panel-2)}
+.pos{color:var(--up)}.neg{color:var(--down)}
+.empty{color:var(--faint);font-size:12px;text-align:center;padding:40px 12px;line-height:1.7}
+.chart{height:300px}
+.footnote{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:8px;line-height:1.7;word-break:break-all}
+</style>
+</head>
+<body>
+<div class="cmdbar">
+  <div class="wordmark">BRAHMA<b>N</b>DA <span>SCENARIO TESTS · XAU</span></div>
+  <div class="spacer"></div>
+  <a class="navlink" id="dashLink" href="redflag_dashboard_gold.html" target="_blank" rel="noopener"
+     title="redflag_dashboard_gold.html">Main dashboard ↗</a>
+</div>
+
+<div class="wrap">
+  <div class="panel cfg">
+    <div class="phdr">Settings <span class="tag" id="cfgSrc"></span></div>
+    <div class="pbody"><div class="cfgsum" id="cfgSum">Loading…</div>
+      <div class="prm" style="margin-top:10px">
+        <label>Capital (USD)<input id="capital" value="100000"></label>
+        <label>Notional per trade (% of capital)<input id="position_pct" value="100"></label>
+        <label>Entry lag (trading days)<input id="entry_lag" value="0"></label>
+      </div>
+      <button class="btn ghost" style="margin-top:10px" id="reloadCfg">Use the dashboard's current Validation settings</button></div>
+    <div class="phdr">Scenarios <span class="tag">Davey, Building Winning Algorithmic Trading Systems</span></div>
+    <div id="list"></div>
+    <div class="runbar">
+      <button class="btn" id="runBtn">▶ Run selected</button>
+      <button class="btn ghost" id="allBtn">Select all</button>
+    </div>
+  </div>
+
+  <div>
+    <div id="statusBanner"></div>
+    <div class="progress" id="prog"><div class="msg" id="progMsg">Starting…</div><div class="track"><i></i></div></div>
+    <div id="results"><div class="panel"><div class="empty">Choose scenarios on the left and press <b>Run selected</b>.<br>
+      Each test re-runs the Validation backtest (signal × realised return − cost) on the gold event history.<br>Pass marks are adjustable rules of thumb, not guarantees.</div></div></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const QS = new URLSearchParams(location.search);
+const API = (QS.get("api") || ((location.protocol.startsWith("http") && location.hostname) ? location.origin : "http://localhost:8010")).replace(/\/$/, "");
+const CFG_KEY = "brahmanda.gold.btcfg";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = (v, d = 0) => v == null ? "—" : Number(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
+const PLOT = {paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)", font:{family:"IBM Plex Mono, ui-monospace, monospace", size:10, color:"#7A8A9E"},
+  margin:{l:66, r:14, t:10, b:40}, xaxis:{gridcolor:"#1D2836", zerolinecolor:"#2A3848"}, yaxis:{gridcolor:"#1D2836", zerolinecolor:"#2A3848"},
+  legend:{font:{size:9}, orientation:"h", y:-0.22}, hovermode:"closest"};
+const PCFG = {displayModeBar:false, responsive:true};
+const PALETTE = ["#E29A3C","#5B8DB8","#4CAF7D","#9B7FD4","#E2B23C","#D95757","#4FC1C9","#C98A5B"];
+let CAT = [], CFG = null, RES = null;
+
+function readCfg() {
+  try { const h = new URLSearchParams(location.hash.slice(1)).get("cfg"); if (h) return { cfg: JSON.parse(h), src: "from the dashboard" }; } catch (e) {}
+  try { const s = localStorage.getItem(CFG_KEY); if (s) return { cfg: JSON.parse(s), src: "from the dashboard" }; } catch (e) {}
+  return null;
+}
+async function loadCfg(preferHash = true) {
+  let st = null;
+  if (!preferHash) { try { const s = localStorage.getItem(CFG_KEY); if (s) st = { cfg: JSON.parse(s), src: "from the dashboard" }; } catch (e) {} }
+  if (!st) st = readCfg();
+  CFG = st ? st.cfg : {};
+  $("cfgSrc").textContent = st ? st.src : "API defaults";
+  $("cfgSum").innerHTML = CFG.horizon ? `Forecast horizon <b>${esc(CFG.horizon)} days</b><br>
+    Period <b>${esc(CFG.start_date)} → ${esc(CFG.end_date)}</b><br>
+    No-trade band <b>${esc(CFG.no_trade_band)}%</b> · tail veto <b>${esc(CFG.tail_veto)}</b> · cost <b>${esc(CFG.cost_bps)} bps</b>` :
+    "The API's default backtest settings (open this page from the dashboard to use its Validation settings).";
+}
+function sentCfg() {
+  const n = id => parseFloat($(id).value);
+  return {...CFG, capital: n("capital") || 100000, position_pct: n("position_pct") || 100, entry_lag: Math.max(0, Math.round(n("entry_lag") || 0))};
+}
+$("reloadCfg").onclick = () => loadCfg(false);
+window.addEventListener("storage", e => { if (e.key === CFG_KEY) loadCfg(false); });
+
+function drawList() {
+  $("list").innerHTML = CAT.map(c => `<div class="sc-item"><div class="top">
+      <input type="checkbox" id="chk_${c.id}" ${["baseline","entry_test","monkey","walk_forward","monte_carlo"].includes(c.id) ? "checked" : ""} aria-label="${esc(c.title)}">
+      <div><label for="chk_${c.id}" class="t">${esc(c.title)}</label><div class="src">${esc(c.source)}</div><div class="w">${esc(c.what)}</div>
+      ${c.params.length ? `<details><summary>Parameters</summary><div class="prm">${c.params.map(p => `<label>${esc(p.label)}
+        <input data-sc="${c.id}" data-k="${p.key}" ${typeof p.default === "boolean" ? `type="checkbox" ${p.default ? "checked" : ""}` : `value="${esc(p.default)}"`}></label>`).join("")}</div></details>` : ""}
+      </div></div></div>`).join("");
+}
+function selected() {
+  return CAT.filter(c => $("chk_" + c.id).checked).map(c => {
+    const params = {};
+    document.querySelectorAll(`[data-sc="${c.id}"]`).forEach(el => { params[el.dataset.k] = el.type === "checkbox" ? el.checked : el.value; });
+    return { id: c.id, params };
+  });
+}
+$("allBtn").onclick = () => { const all = CAT.every(c => $("chk_" + c.id).checked); CAT.forEach(c => $("chk_" + c.id).checked = !all); $("allBtn").textContent = all ? "Select all" : "Clear all"; };
+
+async function run() {
+  const sc = selected();
+  if (!sc.length) { $("statusBanner").innerHTML = `<div class="banner err">Select at least one scenario.</div>`; return; }
+  $("statusBanner").innerHTML = "";
+  $("runBtn").disabled = true; $("runBtn").textContent = "Running…"; $("prog").style.display = "block"; $("progMsg").textContent = "Submitting…";
+  try {
+    const r = await fetch(`${API}/scenarios/run`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({config: sentCfg(), scenarios: sc})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : JSON.stringify(d.detail));
+    for (;;) {
+      await new Promise(res => setTimeout(res, 900));
+      const s = await (await fetch(`${API}/scenarios/status/${d.job_id}`)).json();
+      $("progMsg").textContent = s.message || s.status;
+      if (s.status === "done") { RES = await (await fetch(`${API}/scenarios/result/${d.job_id}`)).json(); render(); break; }
+      if (s.status === "error") throw new Error(s.message);
+    }
+  } catch (e) { $("results").innerHTML = `<div class="banner err"><b>Run failed:</b> ${esc(e.message)}</div>`; }
+  $("runBtn").disabled = false; $("runBtn").textContent = "▶ Run selected"; $("prog").style.display = "none";
+}
+$("runBtn").onclick = run;
+
+// ---------------------------------------------------------------- results
+const cellClass = (col, v) => typeof v === "number" && /\$|net|return|%/i.test(col) && !/win|share|correl|prob|risk/i.test(col) ? (v > 0 ? "pos" : v < 0 ? "neg" : "") : "";
+function tableHtml(t) {
+  return `<div class="sec">${esc(t.title)}</div><div class="sc"><table class="tbl"><thead><tr>${t.columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>` +
+    t.rows.map(r => `<tr>${r.map((v, j) => `<td class="${cellClass(t.columns[j], v)}">${typeof v === "number" ? fmt(v, Math.abs(v) < 10 && !Number.isInteger(v) ? 2 : 0) : esc(v ?? "—")}</td>`).join("")}</tr>`).join("") +
+    `</tbody></table></div>`;
+}
+function drawChart(el, c) {
+  const ax = (extra = {}) => ({...PLOT.yaxis, ...extra});
+  let tr = [], lay = {...PLOT};
+  if (c.kind === "line" || c.kind === "bar") {
+    tr = c.series.map((s, i) => ({x: c.x, y: s.y, name: s.name, type: c.kind === "bar" ? "bar" : "scatter", mode: "lines", marker: {color: PALETTE[i % 8]}, line: {color: PALETTE[i % 8], width: 1.8}}));
+    lay = {...lay, barmode: "group", showlegend: c.series.length > 1, yaxis: ax({tickprefix: c.yprefix || ""}), xaxis: {...PLOT.xaxis, title: c.xlabel || "", type: c.kind === "bar" ? "category" : undefined}};
+  } else if (c.kind === "lines") {
+    tr = c.curves.map((s, i) => ({x: s.x, y: s.y, name: s.name, type: "scatter", mode: "lines", line: {color: PALETTE[i % 8], width: i ? 1.4 : 2.2}}));
+    lay = {...lay, yaxis: ax({tickprefix: c.yprefix || ""}), xaxis: {...PLOT.xaxis, title: c.xlabel || ""}};
+  } else if (c.kind === "hist") {
+    tr = [{x: c.values, type: "histogram", nbinsx: 40, marker: {color: "#5B8DB8"}, name: "simulations"}];
+    lay = {...lay, showlegend: false, bargap: .04, xaxis: {...PLOT.xaxis, tickprefix: c.xprefix || "", ticksuffix: c.xsuffix || ""}, yaxis: ax({title: "count"}),
+      shapes: c.marker == null ? [] : [{type: "line", x0: c.marker, x1: c.marker, yref: "paper", y0: 0, y1: 1, line: {color: "#E29A3C", width: 2.5}}],
+      annotations: c.marker == null ? [] : [{x: c.marker, yref: "paper", y: 1, text: "strategy", showarrow: false, font: {color: "#E29A3C", size: 10}, yanchor: "bottom"}]};
+  } else if (c.kind === "heatmap") {
+    tr = [{x: c.x, y: c.y, z: c.z, type: "heatmap", colorscale: [[0, "#D95757"], [0.5, "#131B28"], [1, "#4CAF7D"]], zmid: c.zmin == null ? 0 : undefined,
+      zmin: c.zmin, zmax: c.zmax, text: c.z.map(r => r.map(v => fmt(v, Math.abs(v) < 10 ? 2 : 0))), texttemplate: "%{text}", textfont: {size: 10, color: "#D9DFE7"}, hoverinfo: "x+y+z", showscale: false}];
+    lay = {...lay, xaxis: {...PLOT.xaxis, title: c.xlabel || "", type: "category"}, yaxis: ax({title: c.ylabel || "", type: "category"})};
+  } else if (c.kind === "fan") {
+    const band = (lo, hi, col, name) => [{x: c.x, y: hi, mode: "lines", line: {width: 0}, showlegend: false, hoverinfo: "skip"},
+      {x: c.x, y: lo, mode: "lines", line: {width: 0}, fill: "tonexty", fillcolor: col, name}];
+    tr = [...band(c.p5, c.p95, "#5B8DB82E", "5–95%"), ...(c.p25 ? band(c.p25, c.p75, "#5B8DB855", "25–75%") : []),
+      {x: c.x, y: c.p50, mode: "lines", name: "median", line: {color: "#5B8DB8", width: 2}},
+      ...(c.actual ? [{x: c.x, y: c.actual, mode: "lines+markers", name: "actual", line: {color: "#E29A3C", width: 2.5}, marker: {size: 5}}] : [])];
+    lay = {...lay, yaxis: ax({tickprefix: c.yprefix || ""}), xaxis: {...PLOT.xaxis, title: c.xlabel || ""}};
+  }
+  Plotly.newPlot(el, tr, lay, PCFG);
+}
+function render() {
+  const R = RES, S = R.scenarios;
+  const counts = S.reduce((a, s) => (a[s.verdict.status] = (a[s.verdict.status] || 0) + 1, a), {});
+  $("results").innerHTML = `
+    <div class="panel"><div class="phdr">Scorecard <span class="tag">focus ${esc(R.focus)} · ${esc(R.period[0])} → ${esc(R.period[1])} · position limit ${R.position_limit}</span></div>
+      <div class="pbody"><div class="board">${S.map(s => `<a href="#sc_${s.id}"><span>${esc(s.title)}</span><span class="pill ${s.verdict.status}">${s.verdict.status.toUpperCase()}</span></a>`).join("")}</div>
+      <div class="footnote">${["pass","watch","fail","info","error"].filter(k => counts[k]).map(k => `${counts[k]} ${k}`).join(" · ")}</div></div></div>
+    ${S.map((s, i) => `<div class="panel card" id="sc_${s.id}"><div class="phdr">${esc(s.title)} <span class="pill ${s.verdict.status}" style="margin-left:8px">${s.verdict.status.toUpperCase()}</span><span class="tag">${esc(s.source)}</span></div>
+      <div class="pbody"><div class="vtext">${esc(s.verdict.text)}</div><div class="what">${esc(s.what)}</div>
+      ${Object.keys(s.params || {}).length ? `<div class="params">${Object.entries(s.params).map(([k, v]) => `${esc(k)}=${esc(v)}`).join(" · ")}</div>` : ""}
+      ${(s.charts || []).map((c, j) => `<div class="sec">${esc(c.title)}</div><div class="chart" id="ch_${i}_${j}"></div>`).join("")}
+      ${(s.tables || []).map(tableHtml).join("")}</div></div>`).join("")}
+    <div class="panel"><div class="pbody"><div class="sec" style="margin-top:0">Provenance</div><div class="footnote">${Object.entries(R.provenance.sha256).map(([k, v]) => `${esc(k)}: ${esc(v)}`).join("<br>")}<br>settings sha256: ${esc(R.provenance.config_sha256)} · random seed ${esc(R.provenance.seed)}</div></div></div>`;
+  S.forEach((s, i) => (s.charts || []).forEach((c, j) => drawChart(`ch_${i}_${j}`, c)));
+}
+
+(async function boot() {
+  $("dashLink").onclick = e => { if (window.opener && !window.opener.closed) { e.preventDefault(); window.opener.focus(); } };
+  try {
+    const r = await fetch(`${API}/scenarios/catalog`, {signal: AbortSignal.timeout(6000)});
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json(); CAT = d.scenarios; drawList();
+    if (!d.data.ready) { $("runBtn").disabled = true; $("statusBanner").innerHTML = `<div class="banner err"><b>The API has no KDE results.</b> Run the <code>kde --horizons 7,15,30</code> step first.</div>`; }
+  } catch (e) {
+    $("runBtn").disabled = true;
+    $("statusBanner").innerHTML = `<div class="banner err"><b>Red Flag API offline (${esc(API)}).</b> Start it with <code>python -m redflag_kit.cli --market markets/gold.json serve</code> and reload. This page never shows placeholder numbers.</div>`;
+  }
+  await loadCfg(true);
+})();
+</script>
+</body>
+</html>

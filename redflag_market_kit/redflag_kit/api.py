@@ -5,9 +5,10 @@ from pathlib import Path
 import numpy as np, pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from . import kde as kde_mod
 from . import scoring
+from . import scenarios as scen
 from .backtest import run_backtest
 from .config import MarketConfig
 from .prices import PriceData
@@ -172,6 +173,63 @@ def create_app(cfg: MarketConfig) -> FastAPI:
         with lock:
             if bt["results"] is None: raise HTTPException(404, "No results - run a backtest first")
             return bt["results"]
+
+    # ── backtest scenario tests (redflag_kit.scenarios), opened in a new window from the dashboard ──
+    kit = Path(__file__).resolve().parent.parent
+    sjobs: dict = {}; sbusy = threading.Semaphore(1)
+
+    @app.get("/scenarios/catalog")
+    def scenarios_catalog():
+        ready = any((kde_dir() / f"kde_v3_results_h{h}.csv").exists() for h in cfg["kde"]["horizons"])
+        return {"scenarios": scen.CATALOG, "data": {"ready": ready, "kde_dir": str(kde_dir())}}
+
+    @app.post("/scenarios/run")
+    def scenarios_run(payload: dict):
+        items = payload.get("scenarios") or []
+        if not items or not isinstance(items, list):
+            raise HTTPException(422, "scenarios: give a list of {id, params}")
+        bad = [i.get("id") if isinstance(i, dict) else i for i in items
+               if (i.get("id") if isinstance(i, dict) else i) not in scen.RUNNERS]
+        if bad: raise HTTPException(422, f"unknown scenario(s): {bad}")
+        btc = {**cfg["backtest"], **(payload.get("config") or {})}
+        jid = str(uuid.uuid4())[:12]
+        if len(sjobs) > 20:
+            for old in [k for k, v in sjobs.items() if v["status"] in ("done", "error")][:len(sjobs) - 20]: sjobs.pop(old, None)
+        sjobs[jid] = {"status": "queued", "message": "Waiting for the previous run to finish..."}
+
+        def work():
+            with sbusy:
+                sjobs[jid].update(status="running", message="Loading data...")
+                try:
+                    frames = {h: kde_results(h) for h in (7, 15, 30) if not kde_results(h).empty}
+                    res = scen.run_scenarios(cfg, btc, items, prices(), frames, progress=lambda m: sjobs[jid].update(message=m))
+                    sjobs[jid].update(status="done", message="Done", result=res)
+                except Exception as e:
+                    sjobs[jid].update(status="error", message=f"{type(e).__name__}: {e}")
+        threading.Thread(target=work, daemon=True).start()
+        return {"job_id": jid}
+
+    @app.get("/scenarios/status/{jid}")
+    def scenarios_status(jid: str):
+        j = sjobs.get(jid)
+        if not j: raise HTTPException(404, "unknown job")
+        return {"status": j["status"], "message": j["message"]}
+
+    @app.get("/scenarios/result/{jid}")
+    def scenarios_result(jid: str):
+        j = sjobs.get(jid)
+        if not j: raise HTTPException(404, "unknown job")
+        if j["status"] != "done": raise HTTPException(409, f"job is {j['status']}")
+        return j["result"]
+
+    @app.get("/scenarios/page", include_in_schema=False)
+    @app.get("/redflag_scenarios_gold.html", include_in_schema=False)
+    def scenarios_page():
+        return FileResponse(kit / "redflag_scenarios_gold.html", media_type="text/html")
+
+    @app.get("/redflag_dashboard_gold.html", include_in_schema=False)
+    def dashboard_file():
+        return FileResponse(kit / "redflag_dashboard_gold.html", media_type="text/html")
 
     @app.get("/dashboard", response_class=HTMLResponse)
     def dashboard():
