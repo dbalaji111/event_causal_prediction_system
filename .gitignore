@@ -8,3 +8,4 @@ redflag_market_kit/demo/data_root_gold_real/
 chain_runs/
 deploy/runtime/
 **/collector_state.json
+redflag_market_kit/.venv/
