@@ -61,8 +61,10 @@ class PriceData:
         if t0 is None: return None
         p0 = self.df.loc[t0, "PX"]
         if not np.isfinite(p0) or p0 == 0: return None
-        t1 = self._nearest(date + pd.Timedelta(days=horizon), self.fwd_max)
-        if t1 is None: return None
+        target = date + pd.Timedelta(days=horizon)
+        if self.df.index[-1] < target: return None        # the outcome window has not finished in this data yet
+        t1 = self._nearest(target, self.fwd_max)
+        if t1 is None or t1 <= t0: return None
         p1 = self.df.loc[t1, "PX"]
         return float((p1 - p0) / abs(p0) * 100) if np.isfinite(p1) else None
 

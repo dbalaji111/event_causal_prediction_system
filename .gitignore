@@ -6,3 +6,5 @@ redflag_market_kit/demo/data_root_gold_real/
 
 # outputs and LLM caches written by notebooks/event_chain_model.ipynb
 chain_runs/
+deploy/runtime/
+**/collector_state.json

@@ -10,6 +10,7 @@ Dockerfile              (repo root)  image: install, download the model, build t
 deploy/build.py         build step:  event memory, precomputed feed, KDE results, dashboard data, 3D map
 deploy/server.py        FastAPI app: the page, /api/analyze, /api/health
 deploy/test_server.py   tests (run after build.py; the model is replaced by stand-ins)
+deploy/test_live.py     live terminal tests (Refinitiv replaced by a fake source)
 deploy/data/            optional real price files (see below)
 ```
 
@@ -53,6 +54,69 @@ the weighting are neutral. Interactive API docs are at `/api/docs`.
 
 A precedent only counts once its whole 30-day outcome window had closed before the event being analysed
 (`analogue_maturity_days` in `/api/health`), so no result uses returns that overlap the event itself.
+
+## Live terminal with Refinitiv (`/live`)
+
+A second dashboard at `/live` shows Refinitiv gold news as it arrives, scores every headline in the background, and
+lets you choose **which time series the KDE is measured on** (any instrument you have stored, such as `XAU=`,
+`GCc1`, `LCOc1` or `CLc1`) and **which horizons** (1 to 90 days). Changing either recomputes the outcome
+distribution, the forecast table and each precedent's outcome on that series.
+
+```
+deploy/feeds/refinitiv.py    Refinitiv / LSEG Data Library adapter: headlines and daily history
+deploy/feeds/store.py        SQLite store: series values and the news feed with each headline's score
+deploy/feeds/pipeline.py     pull loop shared by the collector and the server
+deploy/feeds/collector.py    runs next to Refinitiv and pushes to the server
+deploy/live_routes.py        /live page, /api/live/* (viewer login), /api/ingest/* (collector token)
+deploy/live_dashboard.html   the live dashboard
+```
+
+**Licence first.** Refinitiv content cannot normally be shown to other people under a standard Workspace licence.
+That is why `/live` requires a login and is never public. Check your licence before giving anyone else access.
+
+### Where the data comes from
+
+Most university access is **Workspace on a desktop**, which only works on that computer. So the usual setup is:
+
+1. On the computer with Workspace: `pip install -r deploy/feeds/requirements-collector.txt`.
+2. In Workspace, open **App Key Generator** and create a key.
+3. Test the connection without sending anything:
+   `REFINITIV_APP_KEY=... python deploy/feeds/collector.py --check --rics "XAU=,LCOc1"`
+4. Run it (keep it running while Workspace is open):
+   ```
+   REFINITIV_APP_KEY=... INGEST_TOKEN=... python deploy/feeds/collector.py \
+       --server https://terminal.brahmanda.com.au \
+       --rics "XAU=,GCc1,LCOc1,CLc1" --names "XAU=:Gold spot,GCc1:Gold future,LCOc1:Brent,CLc1:WTI" \
+       --query "Topic:GOL AND Language:LEN"
+   ```
+   The first run sends each series' history from 1999. After that it checks news every minute and prices every hour,
+   and remembers where it got to in `collector_state.json`.
+
+If your licence includes **Data Platform** access (a cloud login), the server can pull by itself instead: set
+`SERVER_REFINITIV=1`, `REFINITIV_MODE=platform`, `REFINITIV_APP_KEY`, `REFINITIV_USERNAME`, `REFINITIV_PASSWORD`,
+`SERIES_RICS` and `NEWS_QUERIES`, and `INSTALL_REFINITIV=1` so the image includes the library.
+
+The news query and the instrument codes (RICs) above are starting points: confirm them in Workspace for your entitlements.
+
+### Railway variables for the live terminal
+
+| Variable | Example | Meaning |
+|---|---|---|
+| `LIVE_USERNAME`, `LIVE_PASSWORD` | your choice | login for `/live`; without them `/live` stays off |
+| `INGEST_TOKEN` | a long random string | the collector's key; the same value goes in the collector's `INGEST_TOKEN` |
+| `DEFAULT_SERIES` | `XAU=` | series used to score the feed; default is the built-in gold series |
+| `DATA_DIR` | `/data` | where the feed and series are stored. Add a Railway **Volume** mounted at `/data`, or the data is lost on each redeploy. If the volume is not writable, also set `RAILWAY_RUN_UID=0` |
+
+Server-side Refinitiv only: `SERVER_REFINITIV`, `REFINITIV_MODE`, `REFINITIV_APP_KEY`, `REFINITIV_USERNAME`,
+`REFINITIV_PASSWORD`, `NEWS_QUERIES` (several separated by `|`), `SERIES_RICS` (comma-separated),
+`NEWS_POLL_SECONDS` (60), `SERIES_POLL_SECONDS` (3600), `INSTALL_REFINITIV=1`.
+
+### How the KDE uses the chosen series
+
+The precedents are found the same way whatever series you choose: by the meaning of the headline in the gold event
+memory. Each precedent's path and outcome are then measured on the chosen series, and the KDE is built from those
+outcomes. A precedent only counts once its longest outcome window has closed before the event, and an event whose
+own window has not finished shows no realised outcome.
 
 ## Run locally
 

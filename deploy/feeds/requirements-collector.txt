@@ -1,0 +1,3 @@
+# Install on the computer that runs the collector (the one with Refinitiv / LSEG Workspace access).
+lseg-data
+pandas>=2.0

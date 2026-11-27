@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brahmanda Live Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
+<style>
+:root{--ink:#0A0E14;--panel:#0F1520;--panel2:#131B28;--line:#1D2836;--text:#D9DFE7;--muted:#7A8A9E;--faint:#3D4B5C;
+  --gold:#E29A3C;--steel:#5B8DB8;--up:#4CAF7D;--down:#D95757;--warn:#E2B23C;--violet:#9B7FD4;
+  --sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--ink);color:var(--text);font:13px/1.45 var(--sans);display:flex;flex-direction:column}
+button,input,select{font:inherit;color:inherit}
+header{display:flex;align-items:center;gap:18px;padding:10px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-family:var(--mono);font-weight:600;letter-spacing:.2em;display:flex;align-items:center;gap:9px}
+.brand b{color:var(--gold);letter-spacing:.12em;font-weight:600}
+.pill{font-family:var(--mono);font-size:11px;padding:3px 9px;border:1px solid var(--line);border-radius:99px;color:var(--muted);white-space:nowrap}
+.pill.ok{color:var(--up);border-color:#4CAF7D55}.pill.bad{color:var(--down);border-color:#D9575755}
+.controls{display:flex;gap:10px;align-items:center;margin-left:auto;flex-wrap:wrap}
+label.ctl{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}
+select,input.h{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 9px}
+select{max-width:260px}
+input.h{width:44px;text-align:center;font-family:var(--mono)}
+main{flex:1;display:grid;grid-template-columns:minmax(300px,380px) 1fr;min-height:0}
+@media (max-width:980px){main{grid-template-columns:1fr}aside{max-height:46vh}}
+aside{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.sec-h{display:flex;justify-content:space-between;align-items:baseline;padding:12px 16px 8px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+#feed{overflow:auto;flex:1;padding:0 8px 12px}
+.item{padding:10px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent;margin-bottom:2px}
+.item:hover{background:var(--panel)}
+.item.sel{background:var(--panel2);border-color:#E29A3C55}
+.item.fresh{animation:fresh 2.5s ease-out}
+@keyframes fresh{from{background:#E29A3C22}to{background:transparent}}
+.item .t{font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:center}
+.item .hl{margin-top:3px}
+.badge{font-family:var(--mono);font-size:10.5px;padding:1px 7px;border-radius:4px;border:1px solid var(--line)}
+.badge.rf{color:#fff;background:var(--down);border-color:var(--down)}
+.badge.long{color:var(--up);border-color:#4CAF7D66}.badge.short{color:var(--down);border-color:#D9575766}
+.badge.wait{color:var(--faint)}
+.up{color:var(--up)}.down{color:var(--down)}
+section.content{overflow:auto;padding:16px 20px 28px;min-height:0}
+.ask{display:flex;gap:8px;margin-bottom:16px}
+.ask input{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.ask input.date{flex:none;width:150px;font-family:var(--mono)}
+.btn{background:var(--gold);color:#160D02;border:0;border-radius:8px;padding:10px 16px;font-weight:600;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:default}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:14px}
+.event h2{font-size:19px;font-weight:600;margin:4px 0 8px;line-height:1.3}
+.meta{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:12px;font-family:var(--mono)}
+.meta b{color:var(--text);font-weight:500}
+.grid2{display:grid;grid-template-columns:1.25fr 1fr;gap:14px}
+@media (max-width:1250px){.grid2{grid-template-columns:1fr}}
+.chart{height:320px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{color:var(--muted);font-weight:500;text-align:right;padding:6px 8px;border-bottom:1px solid var(--line);font-size:11.5px;white-space:nowrap}
+th:first-child,td:first-child,th.txt{text-align:left}
+td{padding:6px 8px;border-bottom:1px solid #1D283688;text-align:right;font-family:var(--mono)}
+td.txt{font-family:var(--sans);text-align:left;color:var(--muted);max-width:520px}
+.empty{color:var(--muted);padding:40px 10px;text-align:center}
+.note{color:var(--muted);font-size:12px;margin-top:8px}
+.err{color:var(--down)}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--faint);border-top-color:var(--gold);border-radius:50%;animation:sp 1s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{background:none;border:0;padding:3px 9px;font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer}
+.seg button.on{background:var(--panel2);color:var(--gold)}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13.5" fill="none" stroke="#E29A3C" stroke-width="2.5"/><circle cx="16" cy="16" r="4.5" fill="#E29A3C"/></svg>BRAHMANDA <b>LIVE</b></div>
+  <span class="pill" id="pFeed">feed …</span>
+  <span class="pill" id="pIngest">source …</span>
+  <div class="controls">
+    <label class="ctl">Series <select id="series" aria-label="Price series used for the KDE"></select></label>
+    <label class="ctl">Horizons (days)
+      <input class="h" id="h1" value="7" inputmode="numeric" aria-label="Horizon 1">
+      <input class="h" id="h2" value="15" inputmode="numeric" aria-label="Horizon 2">
+      <input class="h" id="h3" value="30" inputmode="numeric" aria-label="Horizon 3">
+    </label>
+  </div>
+</header>
+<main>
+  <aside>
+    <div class="sec-h"><span>Live news · Refinitiv</span><span id="feedCount"></span></div>
+    <div id="feed"><div class="empty">Waiting for headlines…</div></div>
+  </aside>
+  <section class="content">
+    <div class="ask">
+      <input id="q" placeholder="Paste any gold headline to analyse it on the selected series" aria-label="Headline">
+      <input id="qd" class="date" type="date" aria-label="Event date">
+      <button class="btn" id="go">Analyse</button>
+    </div>
+    <div id="view"><div class="card empty">Select a headline from the live feed, or paste one above.</div></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = ["#E29A3C", "#5B8DB8", "#9B7FD4", "#4CAF7D"];
+const S = { series: null, list: [], current: null, req: 0, seen: new Set(), first: true, range: "5Y" };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pct = v => v == null ? "–" : (v > 0 ? "+" : "") + Number(v).toFixed(2) + "%";
+const cls = v => v == null ? "" : v > 0 ? "up" : v < 0 ? "down" : "";
+const localTime = iso => { const d = new Date(iso + "Z"); return isNaN(d) ? iso : d.toLocaleString([], {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"}); };
+const PLOT = { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", font: { family: "IBM Plex Sans, system-ui, -apple-system, Segoe UI, sans-serif", color: "#D9DFE7", size: 12 },
+  margin: { l: 52, r: 16, t: 10, b: 40 }, xaxis: { gridcolor: "#1D2836", zerolinecolor: "#3D4B5C" }, yaxis: { gridcolor: "#1D2836", zerolinecolor: "#3D4B5C" },
+  legend: { orientation: "h", y: 1.12, x: 0 }, hovermode: "x unified" };
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { credentials: "same-origin", ...opts, headers: { "Content-Type": "application/json", ...(opts.headers || {}) } });
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch (e) {} throw new Error(typeof m === "string" ? m : JSON.stringify(m)); }
+  return r.json();
+}
+function horizons() {
+  const hs = ["h1", "h2", "h3"].map(id => parseInt($(id).value, 10)).filter(h => h >= 1 && h <= 90);
+  return [...new Set(hs)].sort((a, b) => a - b);
+}
+
+// ---------------------------------------------------------------- status + series
+async function loadStatus() {
+  try {
+    const s = await api("api/live/status");
+    const n = s.news.by_status || {};
+    const total = Object.values(n).reduce((a, b) => a + b, 0);
+    $("pFeed").textContent = `${total} headlines · ${n.new || 0} scoring`;
+    $("pFeed").className = "pill " + (total ? "ok" : "");
+    const last = s.last_ingest ? new Date(s.last_ingest) : null;
+    const fresh = last && (Date.now() - last) < 10 * 60 * 1000;
+    $("pIngest").textContent = s.server_refinitiv === true ? "Refinitiv: server session" :
+      last ? `collector · last push ${last.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}` : "collector · no data yet";
+    $("pIngest").className = "pill " + (s.server_refinitiv === true || fresh ? "ok" : s.server_refinitiv === false ? "bad" : "");
+  } catch (e) { $("pFeed").textContent = "offline"; $("pFeed").className = "pill bad"; }
+}
+async function loadSeries() {
+  const r = await api("api/live/series");
+  S.list = r.series;
+  if (!S.series || !S.list.some(s => s.ric === S.series)) S.series = (S.list.find(s => s.ric === r.default) || S.list[0] || {}).ric;
+  $("series").innerHTML = S.list.map(s => `<option value="${esc(s.ric)}" ${s.ric === S.series ? "selected" : ""}>${esc(s.name)} · ${esc(s.ric)} (${esc((s.first || "").slice(0, 4))}–${esc((s.last || "").slice(0, 4))})</option>`).join("");
+}
+
+// ---------------------------------------------------------------- feed
+async function loadFeed() {
+  try {
+    const { items } = await api("api/live/feed?limit=80");
+    $("feedCount").textContent = items.length ? `${items.length} latest` : "";
+    if (!items.length) { $("feed").innerHTML = `<div class="empty">No headlines yet. Start the collector, or check its news query.</div>`; return; }
+    $("feed").innerHTML = items.map(it => {
+      const sm = it.summary, c = sm && sm.cone ? Object.entries(sm.cone)[Math.min(1, Object.keys(sm.cone).length - 1)] : null;
+      const badges = it.status === "new" ? `<span class="badge wait"><span class="spin"></span> scoring</span>` :
+        it.status === "error" ? `<span class="badge" title="${esc(it.error)}">not scored</span>` :
+        `${sm.red_flag ? '<span class="badge rf">RED FLAG</span>' : ""}${c ? `<span class="badge ${c[1].signal === "LONG" ? "long" : c[1].signal === "SHORT" ? "short" : ""}">${c[0]}d ${pct(c[1].median)}</span>` : ""}`;
+      const fresh = !S.first && !S.seen.has(it.story_id);
+      S.seen.add(it.story_id);
+      return `<div class="item ${fresh ? "fresh" : ""} ${S.current && S.current.story === it.story_id ? "sel" : ""}" data-id="${esc(it.story_id)}" data-ts="${esc(it.ts)}">
+        <div class="t">${esc(localTime(it.ts))} ${badges}</div><div class="hl">${esc(it.headline)}</div></div>`;
+    }).join("");
+    S.first = false;
+  } catch (e) { $("feed").innerHTML = `<div class="empty err">${esc(e.message)}</div>`; }
+}
+$("feed").addEventListener("click", e => {
+  const el = e.target.closest(".item"); if (!el) return;
+  document.querySelectorAll(".item.sel").forEach(x => x.classList.remove("sel")); el.classList.add("sel");
+  analyse({ headline: el.querySelector(".hl").textContent, date: el.dataset.ts.slice(0, 10), story: el.dataset.id });
+});
+
+// ---------------------------------------------------------------- analysis
+async function analyse(ev) {
+  S.current = ev;
+  const id = ++S.req, hs = horizons();
+  $("view").innerHTML = `<div class="card empty"><span class="spin"></span> Finding precedents and estimating outcomes on ${esc(seriesName())}…</div>`;
+  try {
+    const out = await api("api/live/analyze", { method: "POST", body: JSON.stringify({ headline: ev.headline, date: ev.date || undefined, series: S.series, horizons: hs }) });
+    if (id !== S.req) return;
+    render(out);
+  } catch (e) { if (id === S.req) $("view").innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+}
+function seriesName() { const s = S.list.find(x => x.ric === S.series); return s ? s.name : S.series; }
+
+function render(o) {
+  const hs = Object.keys(o.forecast_cone).sort((a, b) => a - b);
+  const sc = o.score && o.score.composite ? o.score.composite.score : null;
+  const rf = hs.some(h => o.forecast_cone[h].red_flag);
+  $("view").innerHTML = `
+    <div class="card event">
+      <div class="meta"><span>${esc(o.date)}</span><span>Topic <b>${esc(o.event_type)}</b></span>${sc != null ? `<span>Risk score <b>${Number(sc).toFixed(0)}</b></span>` : ""}<span>Series <b>${esc(o.live.series)}</b></span><span>${o.analogues.length} precedents · ${o.live.elapsed_ms} ms</span>${rf ? '<span class="badge rf">RED FLAG</span>' : ""}</div>
+      <h2>${esc(o.text)}</h2>
+      ${o.live.price_context ? "" : `<div class="note">The selected series has no value on this date, so the outcome range uses the precedents only.</div>`}
+    </div>
+    <div class="grid2">
+      <div class="card"><div class="sec-h" style="padding:0 0 8px">Outcome distribution (KDE) · ${esc(o.live.series)}</div><div id="kde" class="chart"></div>
+        <div class="note">Each curve is the probability of each % move after the event, built from what the series did after its most similar past events.</div></div>
+      <div class="card"><div class="sec-h" style="padding:0 0 8px"><span>${esc(o.live.series)}</span><span class="seg" id="rng">${["1Y","5Y","ALL"].map(r => `<button class="${r === S.range ? "on" : ""}" data-r="${r}">${r}</button>`).join("")}</span></div><div id="px" class="chart"></div>
+        <div class="note">Gold dot: this event. Grey dots: the precedents used.</div></div>
+    </div>
+    <div class="card"><div class="sec-h" style="padding:0 0 8px">Forecast by horizon</div>
+      <table><thead><tr><th>Horizon</th><th>5th pct</th><th>Median</th><th>95th pct</th><th>P(&lt; −10%)</th><th>P(&gt; +10%)</th><th>Tail weight</th><th>Two camps</th><th>Signal</th><th>Red flag</th><th>Precedents</th><th>Realised</th></tr></thead>
+      <tbody>${hs.map(h => { const c = o.forecast_cone[h]; return `<tr><td>${h} days</td><td class="${cls(c.p5)}">${pct(c.p5)}</td><td class="${cls(c.median)}"><b>${pct(c.median)}</b></td><td class="${cls(c.p95)}">${pct(c.p95)}</td>
+        <td>${c.p_down10 == null ? "–" : (c.p_down10 * 100).toFixed(1) + "%"}</td><td>${c.p_up10 == null ? "–" : (c.p_up10 * 100).toFixed(1) + "%"}</td><td>${(c.tail_weight * 100).toFixed(0)}%</td>
+        <td>${c.is_bimodal ? "yes" : "no"}</td><td>${esc(c.signal)}</td><td>${c.red_flag ? '<span class="badge rf">YES</span>' : "no"}</td><td>${c.n_analogues}</td><td class="${cls(c.realised_r)}">${pct(c.realised_r)}</td></tr>`; }).join("")}</tbody></table>
+      ${hs.length ? "" : `<div class="note err">Not enough precedents with data on this series for these horizons.</div>`}</div>
+    <div class="card"><div class="sec-h" style="padding:0 0 8px">Precedents · outcome on ${esc(o.live.series)}</div>
+      <table><thead><tr><th>Date</th><th>Similarity</th><th class="txt">Topic</th>${(o.live.horizons || []).map(h => `<th>${h}d</th>`).join("")}<th class="txt">What happened then</th></tr></thead>
+      <tbody>${o.analogues.slice(0, 25).map(a => `<tr><td>${esc(a.date)}</td><td>${(a.similarity * 100).toFixed(1)}%</td><td class="txt">${esc(a.event_type)}</td>
+        ${(o.live.horizons || []).map(h => { const v = (a.outcomes || {})[h]; return `<td class="${cls(v)}">${pct(v)}</td>`; }).join("")}<td class="txt">${esc(a.summary)}</td></tr>`).join("")}</tbody></table></div>`;
+  drawKde(o, hs);
+  drawSeries(o);
+  $("rng").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; S.range = b.dataset.r; document.querySelectorAll("#rng button").forEach(x => x.classList.toggle("on", x === b)); drawSeries(o); });
+}
+
+function drawKde(o, hs) {
+  const traces = [], shapes = [];
+  hs.forEach((h, i) => {
+    const d = (o.densities || {})[h], c = o.forecast_cone[h], col = COLORS[i % COLORS.length];
+    if (!d) return;
+    traces.push({ x: d.x, y: d.y, name: `${h} days`, type: "scatter", mode: "lines", line: { color: col, width: 2.5 },
+      fill: "tozeroy", fillcolor: col + "1A", hovertemplate: `${h}d: %{x:.1f}%<extra></extra>` });
+    shapes.push({ type: "line", x0: c.median, x1: c.median, yref: "paper", y0: 0, y1: 1, line: { color: col, width: 1.5, dash: "dash" } });
+    [c.p5, c.p95].forEach(v => shapes.push({ type: "line", x0: v, x1: v, yref: "paper", y0: 0, y1: .12, line: { color: col, width: 2 } }));
+  });
+  Plotly.react("kde", traces, { ...PLOT, hovermode: "closest", shapes, xaxis: { ...PLOT.xaxis, title: "% move after the event", ticksuffix: "%" },
+    yaxis: { ...PLOT.yaxis, title: "density", showticklabels: false } }, { displayModeBar: false, responsive: true });
+}
+
+async function drawSeries(o) {
+  const yrs = { "1Y": 1, "5Y": 5, "ALL": 60 }[S.range];
+  const start = new Date(new Date(o.date) - yrs * 365.25 * 864e5).toISOString().slice(0, 10);
+  try {
+    const s = await api(`api/live/series/${encodeURIComponent(S.series)}?start=${S.range === "ALL" ? "" : start}`);
+    const at = new Map(s.dates.map((d, i) => [d, s.values[i]]));
+    const near = d => { for (let k = 0; k < 6; k++) { const t = new Date(new Date(d).getTime() + k * 864e5).toISOString().slice(0, 10); if (at.has(t)) return [t, at.get(t)]; } return null; };
+    const ana = o.analogues.map(a => near(a.date)).filter(Boolean), ev = near(o.date);
+    Plotly.react("px", [
+      { x: s.dates, y: s.values, type: "scatter", mode: "lines", line: { color: "#5B8DB8", width: 1.5 }, name: "series", hovertemplate: "%{x}: %{y:,.2f}<extra></extra>" },
+      { x: ana.map(p => p[0]), y: ana.map(p => p[1]), type: "scatter", mode: "markers", marker: { color: "#7A8A9E", size: 6 }, name: "precedents", hovertemplate: "precedent %{x}<extra></extra>" },
+      ...(ev ? [{ x: [ev[0]], y: [ev[1]], type: "scatter", mode: "markers", marker: { color: "#E29A3C", size: 12, line: { color: "#0A0E14", width: 2 } }, name: "this event", hovertemplate: "event %{x}<extra></extra>" }] : []),
+    ], { ...PLOT, showlegend: false, hovermode: "closest", xaxis: { ...PLOT.xaxis, type: "date" }, yaxis: { ...PLOT.yaxis, tickformat: ",.0f" } }, { displayModeBar: false, responsive: true });
+  } catch (e) { $("px").innerHTML = `<div class="empty err">${esc(e.message)}</div>`; }
+}
+
+// ---------------------------------------------------------------- controls
+$("series").addEventListener("change", e => { S.series = e.target.value; if (S.current) analyse(S.current); });
+["h1", "h2", "h3"].forEach(id => $(id).addEventListener("change", () => { if (S.current) analyse(S.current); }));
+$("go").addEventListener("click", () => { const h = $("q").value.trim(); if (h.length < 10) { $("q").focus(); return; }
+  document.querySelectorAll(".item.sel").forEach(x => x.classList.remove("sel")); analyse({ headline: h, date: $("qd").value || undefined }); });
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") $("go").click(); });
+$("qd").max = new Date().toISOString().slice(0, 10);
+
+(async function boot() {
+  try { await loadSeries(); } catch (e) { $("view").innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; }
+  await Promise.all([loadStatus(), loadFeed()]);
+  setInterval(loadFeed, 20000);
+  setInterval(loadStatus, 30000);
+  setInterval(() => loadSeries().catch(() => {}), 300000);
+})();
+</script>
+</body>
+</html>

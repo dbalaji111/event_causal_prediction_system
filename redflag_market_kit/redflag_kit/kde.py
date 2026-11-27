@@ -154,8 +154,10 @@ def run_event(cfg: MarketConfig, event_id, base_date: pd.Timestamp, analogues: L
         ad = pd.to_datetime(a["date"])
         r = prices.forward_return(ad, horizon)
         if r is None:
-            try: r = float(a.get({7: "r7", 15: "r15", 30: "r30"}.get(horizon), 0) or 0)
-            except Exception: r = 0.0
+            key = {7: "r7", 15: "r15", 30: "r30"}.get(horizon)
+            stored = a.get(key) if key else None      # no stored outcome for other horizons: skip, never assume 0
+            try: r = None if stored is None else float(stored)
+            except (TypeError, ValueError): r = None
         if r is None or not np.isfinite(r): continue
         ap = a_path(a)
         w = three_rank_weight(k, a.get("similarity", 0.5), base_q, a.get("quantile_cat", ""), bp, ap[keep], all_dtw)

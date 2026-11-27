@@ -22,6 +22,8 @@ KIT_DIR = Path(os.environ.get("KIT_DIR", Path(__file__).resolve().parent.parent 
 sys.path.insert(0, str(KIT_DIR))
 from redflag_kit.config import MarketConfig  # noqa: E402
 from redflag_kit.live import LiveEngine  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from live_routes import LiveService  # noqa: E402
 
 MARKET_FILE = KIT_DIR / "markets" / "gold.json"
 DATA_ROOT = KIT_DIR / "demo" / "data_root_gold_real"
@@ -48,13 +50,24 @@ class AnalyzeIn(BaseModel):
     date: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
+def server_refinitiv() -> Optional[Callable]:
+    """The server pulls from Refinitiv itself only when SERVER_REFINITIV=1 (needs platform credentials);
+    otherwise the collector pushes data in."""
+    if os.environ.get("SERVER_REFINITIV", "").lower() not in ("1", "true", "yes"):
+        return None
+    from feeds.refinitiv import RefinitivSource
+    return lambda: RefinitivSource()
+
+
 def create_app(embed: Optional[Callable] = None, rate_per_minute: Optional[int] = None,
-               max_concurrent: Optional[int] = None) -> FastAPI:
+               max_concurrent: Optional[int] = None, live: Optional[dict] = None) -> FastAPI:
+    """live: overrides for the live service (tests pass data_dir, credentials and a fake source)."""
     rate = rate_per_minute if rate_per_minute is not None else int(os.environ.get("RATE_LIMIT_PER_MINUTE", "20"))
     busy = threading.BoundedSemaphore(max_concurrent or int(os.environ.get("MAX_CONCURRENT_ANALYSES", "2")))
     hits: dict = defaultdict(deque)
     hits_lock = threading.Lock()
     state: dict = {}
+    live_service: dict = {}
 
     @asynccontextmanager
     async def lifespan(_app):
@@ -72,8 +85,12 @@ def create_app(embed: Optional[Callable] = None, rate_per_minute: Optional[int] 
             "price_source": src.get("source"), "price_range": [src.get("first_date"), src.get("last_date")],
             "analogue_maturity_days": engine.maturity_days,
         }
+        svc = live_service["svc"]
+        svc.start()
+        state["info"]["live_enabled"] = bool(svc.live_user and svc.live_password)
         log.info("ready in %.1fs: %s", time.perf_counter() - t0, state["info"])
         yield
+        svc.shutdown()
 
     app = FastAPI(title="Gold Event Risk Terminal", lifespan=lifespan,
                   docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
@@ -92,6 +109,10 @@ def create_app(embed: Optional[Callable] = None, rate_per_minute: Optional[int] 
                 for k in [k for k, v in hits.items() if not v]:
                     del hits[k]
             return True
+
+    opts = {"source_factory": server_refinitiv(), **(live or {})}
+    live_service["svc"] = LiveService(state, busy, allow, DATA_ROOT, **opts)
+    live_service["svc"].register(app)
 
     @app.get("/api/health")
     def health():

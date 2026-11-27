@@ -20,9 +20,13 @@ COPY redflag_market_kit redflag_market_kit
 COPY deploy deploy
 RUN python deploy/build.py
 
+# Only when the server itself should log in to Refinitiv (SERVER_REFINITIV=1 with platform credentials).
+ARG INSTALL_REFINITIV=0
+RUN if [ "$INSTALL_REFINITIV" = "1" ]; then pip install lseg-data; fi
+
 ENV HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1
-RUN useradd --create-home --uid 10001 app && chown -R app /app/.hf
+RUN useradd --create-home --uid 10001 app && mkdir -p /app/deploy/runtime && chown -R app /app/.hf /app/deploy/runtime
 USER app
 
 EXPOSE 8000
