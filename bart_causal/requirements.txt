@@ -1,0 +1,11 @@
+# Install on the cluster (jobs/setup_env.sh does this). Use a torch build that matches the cluster's CUDA:
+# see https://pytorch.org/get-started/locally/ if the default wheel does not see the GPUs.
+torch>=2.1
+transformers>=4.40
+accelerate>=0.30
+sentencepiece
+huggingface_hub>=0.23
+numpy
+pandas>=2.0
+scipy
+scikit-learn

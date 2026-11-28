@@ -99,6 +99,22 @@ def build_edges(df: pd.DataFrame, effect_vecs, cause_vecs) -> list[dict]:
     return edges
 
 
+MIN_BART_SCORE = 0.5   # BART link probability below which a link isn't shown
+
+
+def build_edges_from_bart(df: pd.DataFrame, scores_csv: Path) -> list[dict]:
+    """Edges from the BART causal-link model (bart_causal/bart_causal_pipeline.py score): for each source event, its
+    TOP_K_SUCCESSORS highest-probability later events within MAX_LAG_DAYS, kept when the probability is at least
+    MIN_BART_SCORE. Only pairs the pipeline scored are considered."""
+    sc = pd.read_csv(scores_csv)
+    ids = set(df["Doc_ID"])
+    sc = sc[sc["src"].isin(ids) & sc["tgt"].isin(ids) & (sc["days_gap"] > 0) & (sc["days_gap"] <= MAX_LAG_DAYS)
+            & (sc["score"] >= MIN_BART_SCORE)]
+    sc = sc.sort_values(["src", "score"], ascending=[True, False]).groupby("src").head(TOP_K_SUCCESSORS)
+    return [{"source": r.src, "target": r.tgt, "score": round(float(r.score), 4), "days_gap": int(r.days_gap)}
+            for r in sc.itertuples()]
+
+
 def build_transition_table(df: pd.DataFrame, edges: list[dict]) -> dict:
     """7x7 'given a source event's type, what type does the linked successor tend to be' - aggregated
     over every kept edge, weighted by its link score, normalized to a probability row per source type.
@@ -118,12 +134,21 @@ def build_transition_table(df: pd.DataFrame, edges: list[dict]) -> dict:
     return {"types": types, "table": tbl}
 
 
-def main():
+def main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser(description="Build causal_chain_snapshot.json")
+    ap.add_argument("--bart-scores", type=Path, default=None,
+                    help="bart_link_scores.csv from bart_causal/bart_causal_pipeline.py; default is the TF-IDF placeholder")
+    args = ap.parse_args(argv)
     df = load_events()
     print(f"{len(df)} events with usable cause/effect text, {df['Date'].min().date()} to {df['Date'].max().date()}")
-    effect_vecs, cause_vecs = score_links(df)
-    edges = build_edges(df, effect_vecs, cause_vecs)
-    print(f"{len(edges)} edges kept (score >= {MIN_SCORE}, lag <= {MAX_LAG_DAYS}d, top {TOP_K_SUCCESSORS}/event)")
+    if args.bart_scores:
+        edges = build_edges_from_bart(df, args.bart_scores)
+        print(f"{len(edges)} edges kept (BART probability >= {MIN_BART_SCORE}, lag <= {MAX_LAG_DAYS}d, top {TOP_K_SUCCESSORS}/event)")
+    else:
+        effect_vecs, cause_vecs = score_links(df)
+        edges = build_edges(df, effect_vecs, cause_vecs)
+        print(f"{len(edges)} edges kept (score >= {MIN_SCORE}, lag <= {MAX_LAG_DAYS}d, top {TOP_K_SUCCESSORS}/event)")
     transitions = build_transition_table(df, edges)
 
     events = [{
@@ -139,12 +164,17 @@ def main():
         "transition_table": transitions,
         "meta": {
             "n_events": len(events), "n_edges": len(edges),
-            "link_method": "tfidf_cosine_effect_to_cause",
-            "link_method_note": "Lexical-overlap heuristic (TF-IDF cosine between one event's gold_effect "
-                                  "text and a later event's gold_cause text), not semantic causal "
-                                  "understanding. A placeholder for the BART causal model meant to replace "
-                                  "it - see export_causal_chains.py's module docstring.",
-            "max_lag_days": MAX_LAG_DAYS, "top_k_successors": TOP_K_SUCCESSORS, "min_score": MIN_SCORE,
+            "link_method": "bart_cross_encoder_effect_to_cause" if args.bart_scores else "tfidf_cosine_effect_to_cause",
+            "link_method_note": (
+                "BART cross-encoder (bart_causal/bart_causal_pipeline.py): probability that one event's effect "
+                "plausibly led to a later event's cause, trained on judge labels; see that pipeline's eval.json."
+                if args.bart_scores else
+                "Lexical-overlap heuristic (TF-IDF cosine between one event's gold_effect "
+                "text and a later event's gold_cause text), not semantic causal "
+                "understanding. A placeholder for the BART causal model meant to replace "
+                "it - see export_causal_chains.py's module docstring."),
+            "max_lag_days": MAX_LAG_DAYS, "top_k_successors": TOP_K_SUCCESSORS,
+            "min_score": MIN_BART_SCORE if args.bart_scores else MIN_SCORE,
         },
     }
     OUT.write_text(json.dumps(snapshot, default=str, allow_nan=False), encoding="utf-8")
